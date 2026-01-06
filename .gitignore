@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE settings
+.vscode/
+.history/
+.idea/
+*.iml
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+coverage/
+reports/
+exportedObjects/
+
+# Test artifacts
+test/
+
+# Local configs
+*.local.http
+input.json
+config.json
+.sentryclirc
+.httpyac.json
+.env
+
+old/

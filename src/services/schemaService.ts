@@ -1,0 +1,219 @@
+import { AttributeDefinition, Schema } from 'sailpoint-api-client'
+import { AccountSchema, SchemaAttribute } from '@sailpoint/connector-sdk'
+import { AttributeMap, FusionConfig } from '../model/config'
+import { ClientService } from './clientService'
+import { LogService } from './logService'
+import { SourceService } from './sourceService'
+import { assert } from '../utils/assert'
+import { fusionAccountSchemaAttributes } from '../data/schema'
+
+/**
+ * Service for managing account schema, dynamic schema building.
+ */
+
+const isAccountSchema = (schema: Schema): boolean => {
+    return schema.nativeObjectType === 'User' || schema.nativeObjectType === 'account' || schema.name === 'account'
+}
+
+const attributeDefinitionToSchemaAttribute = (attributeDefinition: AttributeDefinition): SchemaAttribute => {
+    return {
+        name: attributeDefinition.name ?? '',
+        description: attributeDefinition.description ?? '',
+        type: attributeDefinition.type ? attributeDefinition.type.toLowerCase() : 'string',
+        multi: attributeDefinition.isMulti ?? false,
+        entitlement: attributeDefinition.isEntitlement ?? false,
+    }
+}
+
+const apiSchemaToAccountSchema = (apiSchema: Schema): AccountSchema => {
+    const attributes = (apiSchema.attributes ?? []).map((x) => attributeDefinitionToSchemaAttribute(x))
+    const accountSchema: AccountSchema = {
+        displayAttribute: apiSchema.displayAttribute!,
+        identityAttribute: apiSchema.identityAttribute!,
+        attributes,
+        groupAttribute: '',
+    }
+
+    return accountSchema
+}
+
+export class SchemaService {
+    private _fusionAccountSchema?: AccountSchema
+    private attributeMap: Map<string, AttributeMap> = new Map()
+
+    constructor(
+        private config: FusionConfig,
+        private log: LogService,
+        private client: ClientService,
+        private sources: SourceService
+    ) {
+        this.attributeMap = new Map(config.attributeMaps?.map((x) => [x.newAttribute, x]) ?? [])
+    }
+
+    private async fetchFusionAccountSchema(): Promise<void> {
+        this._fusionAccountSchema = await this.fetchAccountSchema(this.sources.fusionSourceId!)
+    }
+
+    public get fusionIdentityAttribute(): string {
+        return this.fusionAccountSchema.identityAttribute
+    }
+
+    public get fusionDisplayAttribute(): string {
+        return this.fusionAccountSchema.displayAttribute
+    }
+
+    public async setFusionAccountSchema(accountSchema: AccountSchema | undefined): Promise<void> {
+        if (accountSchema) {
+            this._fusionAccountSchema = accountSchema
+        } else {
+            await this.fetchFusionAccountSchema()
+        }
+    }
+
+    /**
+     * Get schema - build dynamically if not loaded
+     */
+    private get fusionAccountSchema(): AccountSchema {
+        assert(this._fusionAccountSchema, 'Fusion account schema must be set first')
+
+        return this._fusionAccountSchema
+    }
+
+    private async fetchAccountSchema(id: string): Promise<AccountSchema> {
+        const sourceSchemas = await this.sources.listSourceSchemas(id)
+        const apiAccountSchema = sourceSchemas.find(isAccountSchema)
+        assert(apiAccountSchema, `Account schema not found for source ${id}`)
+        const accountSchema = apiSchemaToAccountSchema(apiAccountSchema)
+
+        return accountSchema
+    }
+
+    private getAccountSchemaAttributes(schema: AccountSchema): SchemaAttribute[] {
+        const attributes: SchemaAttribute[] = []
+        for (const attribute of schema.attributes) {
+            const attributeMap = this.attributeMap.get(attribute.name!)
+            if (attributeMap) {
+                if (attributeMap.attributeMerge === 'list') {
+                    attribute.multi = true
+                } else {
+                    attribute.multi = false
+                }
+            } else {
+                if (this.config.attributeMerge === 'list') {
+                    attribute.multi = true
+                } else {
+                    attribute.multi = false
+                }
+            }
+            attribute.description = attribute.description || `${attribute.name} from ${schema}`
+            attributes.push(attribute)
+        }
+
+        return attributes
+    }
+
+    private getAttributeMappingAttributes(): SchemaAttribute[] {
+        const attributes: SchemaAttribute[] = []
+        for (const attributeMap of this.attributeMap.values()) {
+            if (attributeMap.attributeMerge === 'list') {
+                attributes.push({
+                    name: attributeMap.newAttribute,
+                    description: `Created from ${attributeMap.existingAttributes.join(', ')}`,
+                    type: 'string',
+                    multi: true,
+                    entitlement: false,
+                })
+            } else {
+                attributes.push({
+                    name: attributeMap.newAttribute,
+                    description: `Created from ${attributeMap.existingAttributes.join(', ')}`,
+                    type: 'string',
+                    multi: false,
+                    entitlement: false,
+                })
+            }
+        }
+
+        return attributes
+    }
+
+    private getAttributeDefinitionAttributes(): SchemaAttribute[] {
+        const attributes: SchemaAttribute[] = this.config.attributeDefinitions!.map((x) => {
+            return {
+                name: x.name,
+                description: `Created from expression: ${x.expression}`,
+                type: 'string',
+                multi: false,
+                entitlement: false,
+            }
+        })
+
+        return attributes
+    }
+
+    private getFusionAttributes(): SchemaAttribute[] {
+        return fusionAccountSchemaAttributes
+    }
+
+    public listSchemaAttributeNames(): string[] {
+        return this.fusionAccountSchema.attributes.map((x) => x.name!)
+    }
+
+    /**
+     * Get all schema attributes
+     */
+    public getSchemaAttributes(): SchemaAttribute[] {
+        return this.fusionAccountSchema.attributes
+    }
+
+    /**
+     * Build dynamic schema from managed sources
+     */
+    public async buildDynamicSchema(): Promise<AccountSchema> {
+        this.log.debug('Building dynamic schema.')
+        const attributes: SchemaAttribute[] = []
+        const schema: AccountSchema = {
+            displayAttribute: 'name',
+            identityAttribute: 'id',
+            groupAttribute: 'actions',
+            attributes,
+        }
+
+        // Define static attributes
+        const fusionAttributes = this.getFusionAttributes()
+
+        // Define attribute map attributes
+        const attributeMappingAttributes = this.getAttributeMappingAttributes()
+
+        // Define attribute definition attributes
+        const attributeDefinitionAttributes = this.getAttributeDefinitionAttributes()
+
+        // Define account schema attributes
+        const { managedSources } = this.sources
+
+        const accountSchemaAttributes: SchemaAttribute[] = []
+        for (const source of managedSources.reverse()) {
+            const accountSchema = await this.fetchAccountSchema(source.id!)
+            const attributes = await this.getAccountSchemaAttributes(accountSchema)
+            accountSchemaAttributes.push(...attributes)
+        }
+
+        const attributeMap = new Map<string, SchemaAttribute>()
+        fusionAttributes.forEach((attribute) => {
+            attributeMap.set(String(attribute.name!).toLowerCase(), attribute)
+        })
+        accountSchemaAttributes.forEach((attribute) => {
+            attributeMap.set(String(attribute.name!).toLowerCase(), attribute)
+        })
+        attributeMappingAttributes.forEach((attribute) => {
+            attributeMap.set(String(attribute.name!).toLowerCase(), attribute)
+        })
+        attributeDefinitionAttributes.forEach((attribute) => {
+            attributeMap.set(String(attribute.name!).toLowerCase(), attribute)
+        })
+
+        attributes.push(...Array.from(attributeMap.values()))
+
+        return schema
+    }
+}

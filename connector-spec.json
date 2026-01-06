@@ -1,0 +1,753 @@
+{
+    "name": "Identity Fusion NG",
+    "description": "Identity Fusion NG is a connector that allows you to manage Identity Fusion accounts.",
+    "commands": [
+        "std:test-connection",
+        "std:account:list",
+        "std:account:read",
+        "std:account:enable",
+        "std:account:disable",
+        "std:account:create",
+        "std:account:update",
+        "std:account:discover-schema",
+        "std:entitlement:list"
+    ],
+    "supportsCustomSchemas": true,
+    "showDebugLoggingOption": true,
+    "sourceConfigInitialValues": {
+        "digits": 1,
+        "expression": "#set($initial = $firstname.substring(0, 1))$initial$lastname$counter",
+        "fusionFormExpirationDays": 7,
+        "fusionAverageScore": 80,
+        "provisioningTimeout": 300,
+        "identityScopeQuery": "*",
+        "correlateOnAggregation": true,
+        "attributeMerge": "first",
+        "spConnEnableStatefulCommands": true,
+        "enableQueue": true,
+        "enableRetry": true,
+        "maxRetries": 20,
+        "requestsPerSecond": 10,
+        "maxConcurrentRequests": 10,
+        "taskResultRetries": 5,
+        "taskResultWait": 1000,
+        "processingWait": 60000,
+        "retryDelay": 1000,
+        "batchSize": 250,
+        "externalLoggingLevel": "info"
+    },
+    "sourceConfig": [
+        {
+            "type": "menu",
+            "label": "Connection Settings",
+            "items": [
+                {
+                    "type": "section",
+                    "sectionTitle": "Connection Settings",
+                    "sectionHelpMessage": "<strong>Configure how this connector connects to Identity Security Cloud.</strong><br><br>Use <strong>Identity Security Cloud API URL</strong> to specify the base URL of your ISC tenant (for example, <code>https://tenant.api.identitynow.com</code>).<br><br>Provide the <strong>Personal Access Token ID</strong> and <strong>Personal Access Token Secret</strong> for an account that has the required API permissions. These values are used to authenticate all connector operations.<br><br>Configure <strong>API request retries</strong> to set the maximum number of retry attempts for failed API requests. Use <strong>Requests per second</strong> to control the rate limiting and throttling of API requests to avoid overwhelming the Identity Security Cloud API.",
+                    "items": [
+                        {
+                            "key": "baseurl",
+                            "label": "Identity Security Cloud API URL",
+                            "type": "url",
+                            "required": true
+                        },
+                        {
+                            "key": "clientId",
+                            "label": "Personal Access Token ID",
+                            "type": "text",
+                            "required": true
+                        },
+                        {
+                            "key": "clientSecret",
+                            "label": "Personal Access Token secret",
+                            "type": "secret",
+                            "required": true
+                        },
+                        {
+                            "key": "maxRetries",
+                            "label": "API request retries",
+                            "type": "number",
+                            "required": false,
+                            "min": "0",
+                            "parentKey": "enableRetry",
+                            "parentValue": "true",
+                            "helpKey": "Maximum number of retry attempts for failed API requests (only used when retry is enabled)"
+                        },
+                        {
+                            "key": "requestsPerSecond",
+                            "label": "Requests per second",
+                            "type": "number",
+                            "required": false,
+                            "min": "1",
+                            "parentKey": "enableQueue",
+                            "parentValue": "true",
+                            "helpKey": "Maximum number of API requests per second (throttling, only used when queue is enabled)"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "menu",
+            "label": "Source Settings",
+            "items": [
+                {
+                    "type": "section",
+                    "sectionTitle": "Scope",
+                    "sectionHelpMessage": "<strong>Define which identities are in scope for processing.</strong><br><br>Use <strong>Identity Scope Query</strong> to limit which identities are evaluated by the connector. This typically uses your Identity Security Cloud search or filter syntax to select identities (for example, only active workers, a specific population, or users from certain sources). Only identities that match this query are considered during processing.",
+                    "items": [
+                        {
+                            "key": "identityScopeQuery",
+                            "label": "Identity Scope Query",
+                            "type": "text",
+                            "required": false
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Sources",
+                    "sectionHelpMessage": "<strong>Select the authoritative account sources that feed Identity Fusion.</strong><br><br>Use <strong>Authoritative Account Sources</strong> to list the sources whose accounts will be merged and evaluated when building Identity Fusion accounts.<br><br>Enable <strong>Force Aggregation Before Processing?</strong> to trigger a fresh aggregation of the configured sources before each run. This helps ensure that Identity Fusion always processes the most current account data, at the cost of longer run times.",
+                    "items": [
+                        {
+                            "key": "sources",
+                            "label": "Authoritative account sources",
+                            "type": "list",
+                            "required": true
+                        },
+                        {
+                            "key": "forceAggregation",
+                            "label": "Force aggregation before processing?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "taskResultRetries",
+                            "label": "Aggregation task result retries",
+                            "type": "number",
+                            "required": false,
+                            "min": "0",
+                            "parentKey": "forceAggregation",
+                            "parentValue": "true",
+                            "helpKey": "Number of times to poll the aggregation task status before giving up (only used when force aggregation is enabled)"
+                        },
+                        {
+                            "key": "taskResultWait",
+                            "label": "Aggregation task result wait time (milliseconds)",
+                            "type": "number",
+                            "required": false,
+                            "min": "0",
+                            "parentKey": "forceAggregation",
+                            "parentValue": "true",
+                            "helpKey": "Wait time between aggregation task status checks in milliseconds (only used when force aggregation is enabled)"
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Processing Control",
+                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.",
+                    "items": [
+                        {
+                            "key": "deleteEmpty",
+                            "label": "Delete accounts with no authoritative accounts left?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "correlateOnAggregation",
+                            "label": "Correlate missing source accounts on aggregation?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "resetProcessingFlag",
+                            "label": "Reset processing flag in case of unfinished processing?",
+                            "type": "toggle",
+                            "required": false
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "menu",
+            "label": "Attribute Mapping Settings",
+            "items": [
+                {
+                    "type": "section",
+                    "sectionTitle": "Attribute Mapping Definitions",
+                    "sectionHelpMessage": "<strong>Define how attributes from multiple sources are mapped into the Identity Fusion account.</strong><br><br>Use <strong>Default attribute merge from multiple sources</strong> to choose how values from different authoritative sources are combined when they populate the same attribute (for example, take the first value found, keep a list of values, or concatenate distinct values).<br><br>Use <strong>Attribute Mapping</strong> to configure each target attribute: specify the <strong>New attribute</strong> name on the Identity Fusion account and the list of <strong>Existing attributes</strong> from your sources that should feed it.<br><br>For each mapping, you can optionally override the merge behavior and, when using the <strong>Source name</strong> option, specify which source should be treated as primary.",
+                    "items": [
+                        {
+                            "key": "attributeMerge",
+                            "label": "Default attribute merge from multiple sources",
+                            "type": "radio",
+                            "required": true,
+                            "options": [
+                                {
+                                    "label": "First found",
+                                    "value": "first"
+                                },
+                                {
+                                    "label": "Keep a list of values",
+                                    "value": "list"
+                                },
+                                {
+                                    "label": "Concatenate different values ([a] [b])",
+                                    "value": "concatenate"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "attributeMaps",
+                            "label": "Attribute Mapping",
+                            "titleKey": "newAttribute",
+                            "subtitleKey": "existingAttributes",
+                            "dragNDropEnabled": true,
+                            "deleteButton": true,
+                            "editButton": true,
+                            "addButton": true,
+                            "copyButton": true,
+                            "buttonLabel": "Add attribute mapping",
+                            "type": "cardList",
+                            "subMenus": [
+                                {
+                                    "label": "New Attribute Settings",
+                                    "items": [
+                                        {
+                                            "key": "newAttribute",
+                                            "label": "New attribute",
+                                            "type": "text",
+                                            "required": true,
+                                            "helpKey": "New attribute name"
+                                        },
+                                        {
+                                            "key": "existingAttributes",
+                                            "label": "Existing attributes",
+                                            "type": "list",
+                                            "required": true,
+                                            "helpKey": "List of existing attributes to map to the new attribute"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "label": "Attribute Merging Settings",
+                                    "items": [
+                                        {
+                                            "key": "attributeMerge",
+                                            "label": "Default attribute merge from multiple sources",
+                                            "type": "radio",
+                                            "required": true,
+                                            "options": [
+                                                {
+                                                    "label": "First found",
+                                                    "value": "first"
+                                                },
+                                                {
+                                                    "label": "Keep a list of values",
+                                                    "value": "list"
+                                                },
+                                                {
+                                                    "label": "Concatenate different values ([a] [b])",
+                                                    "value": "concatenate"
+                                                },
+                                                {
+                                                    "label": "Source name",
+                                                    "value": "source"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "key": "source",
+                                            "label": "Source name",
+                                            "type": "text",
+                                            "parentKey": "attributeMerge",
+                                            "parentValue": "source",
+                                            "required": true
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "menu",
+            "label": "Attribute Definition Settings",
+            "items": [
+                {
+                    "type": "section",
+                    "sectionTitle": "Attribute Definition Settings",
+                    "sectionHelpMessage": "<strong>Define how account attributes are generated.</strong><br><br>Use <strong>Attribute Definitions</strong> to configure how each attribute is built (name, Apache Velocity expression, case, type, counter start, minimum counter digits, maximum length, normalization, spacing, and refresh behavior). <strong>Apache Velocity expressions</strong> have access to an enhanced context including <strong>Math</strong> (JavaScript Math object for mathematical operations), <strong>Date</strong> (JavaScript Date object for date manipulation), and <strong>Datefns</strong> (date-fns library for advanced date formatting and manipulation). <strong>Maximum length</strong> truncates generated values to the specified length (for unique and counter attributes, the counter is preserved at the end). <strong>Refresh on each aggregation?</strong> is only available for normal attributes and causes the attribute to be recalculated every aggregation run, even if it already has a value on the account. Counter-based and unique attributes always preserve their state across runs. <strong>UUID attributes</strong> generate universally unique identifiers automatically.<br><br>The connector supports disabling and enabling accounts. When an account is enabled, all attributes (including unique attributes) are force refreshed and recalculated, ensuring that unique attribute values are regenerated based on the current state of all accounts.<br><br>Toggle <strong>Support for incremental counters</strong> to enable stateful commands required for counter-based attributes to increment across connector runs.",
+                    "items": [
+                        {
+                            "key": "attributeDefinitions",
+                            "label": "Attribute Definitions",
+                            "titleKey": "expression",
+                            "subtitleKey": "name",
+                            "dragNDropEnabled": true,
+                            "deleteButton": true,
+                            "editButton": true,
+                            "addButton": true,
+                            "copyButton": true,
+                            "buttonLabel": "New Account Attribute Definition",
+                            "type": "cardList",
+                            "helpKey": "Add definitions to build your attributes",
+                            "subMenus": [
+                                {
+                                    "label": "Attribute Configuration",
+                                    "items": [
+                                        {
+                                            "key": "name",
+                                            "label": "Attribute Name",
+                                            "type": "text",
+                                            "required": true
+                                        },
+                                        {
+                                            "key": "expression",
+                                            "label": "Apache Velocity expression",
+                                            "type": "textarea",
+                                            "required": false
+                                        },
+                                        {
+                                            "key": "case",
+                                            "label": "Case selection",
+                                            "type": "select",
+                                            "required": true,
+                                            "options": [
+                                                {
+                                                    "label": "Do not change",
+                                                    "value": "same"
+                                                },
+                                                {
+                                                    "label": "Lower case",
+                                                    "value": "lower"
+                                                },
+                                                {
+                                                    "label": "Upper case",
+                                                    "value": "upper"
+                                                },
+                                                {
+                                                    "label": "Capitalize",
+                                                    "value": "capitalize"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "key": "type",
+                                            "label": "Attribute Type",
+                                            "type": "select",
+                                            "required": true,
+                                            "options": [
+                                                {
+                                                    "label": "Normal",
+                                                    "value": "normal"
+                                                },
+                                                {
+                                                    "label": "Unique",
+                                                    "value": "unique"
+                                                },
+                                                {
+                                                    "label": "UUID",
+                                                    "value": "uuid"
+                                                },
+                                                {
+                                                    "label": "Counter-based",
+                                                    "value": "counter"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "key": "counterStart",
+                                            "label": "Counter start value",
+                                            "type": "number",
+                                            "required": true,
+                                            "parentKey": "type",
+                                            "parentValue": "counter"
+                                        },
+                                        {
+                                            "key": "digits",
+                                            "label": "Minimum counter digits ($counter)",
+                                            "type": "number",
+                                            "required": true,
+                                            "parentKey": "type",
+                                            "parentValue": "counter"
+                                        },
+                                        {
+                                            "key": "maxLength",
+                                            "label": "Maximum length",
+                                            "type": "number",
+                                            "required": false,
+                                            "min": "1"
+                                        },
+                                        {
+                                            "key": "normalize",
+                                            "label": "Normalize special characters?",
+                                            "type": "toggle"
+                                        },
+                                        {
+                                            "key": "spaces",
+                                            "label": "Remove spaces?",
+                                            "type": "toggle"
+                                        },
+                                        {
+                                            "key": "refresh",
+                                            "label": "Refresh on each aggregation?",
+                                            "type": "toggle",
+                                            "parentKey": "type",
+                                            "parentValue": "normal"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "menu",
+            "label": "Fusion Settings",
+            "items": [
+                {
+                    "type": "section",
+                    "sectionTitle": "Fusion Settings",
+                    "sectionHelpMessage": "<strong>Configure how potential duplicate identities are detected and reviewed.</strong><br><br>Use <strong>List of identity attributes to include in form</strong> to choose which identity attributes appear on the manual review form for potential duplicates.<br><br><strong>Manual review expiration days</strong> controls how long a fusion review remains open before it expires.<br><br>Enable <strong>Automatically correlate if identical?</strong> to automatically merge identities when their attributes meet the similarity criteria and are effectively identical.<br><br>Enable <strong>Use overall merging score for all attributes?</strong> to use a single overall similarity score (based on the LIG3 similarity function from Levenshtein distance) instead of per-attribute scores, and configure <strong>Minimum similarity score</strong> to set the threshold for auto-correlation.<br><br>Use <strong>Identity to account attribute mapping</strong> to define which identity attributes are compared and, optionally, to set dedicated similarity thresholds per attribute.",
+                    "items": [
+                        {
+                            "key": "fusionFormAttributes",
+                            "label": "List of identity attributes to include in form",
+                            "type": "list",
+                            "required": false
+                        },
+                        {
+                            "key": "fusionFormExpirationDays",
+                            "label": "Manual review expiration days",
+                            "type": "number",
+                            "required": true
+                        },
+                        {
+                            "key": "fusionMergingIdentical",
+                            "label": "Automatically correlate if identical?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "fusionUseAverageScore",
+                            "label": "Use overall merging score for all attributes?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "fusionAverageScore",
+                            "label": "Minimum similarity score [0-100] (LIG3 similarity function * 100 from Levenshtein distance)",
+                            "parentKey": "fusionUseAverageScore",
+                            "parentValue": "true",
+                            "type": "number",
+                            "required": true
+                        },
+                        {
+                            "key": "fusionAttributes",
+                            "label": "Identity to account attribute mapping",
+                            "titleKey": "attribute",
+                            "subtitleKey": "fusionScore",
+                            "dragNDropEnabled": true,
+                            "deleteButton": true,
+                            "editButton": true,
+                            "addButton": true,
+                            "copyButton": true,
+                            "buttonLabel": "Add attribute mapping",
+                            "type": "cardList",
+                            "subMenus": [
+                                {
+                                    "label": "Attribute map configuration",
+                                    "items": [
+                                        {
+                                            "key": "attribute",
+                                            "label": "Attribute",
+                                            "type": "text",
+                                            "required": true,
+                                            "helpKey": "Technical name of the identity attribute to compare with"
+                                        },
+                                        {
+                                            "key": "fusionScore",
+                                            "label": "Dedicated minimum similarity score",
+                                            "type": "number",
+                                            "required": false
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "menu",
+            "label": "Advanced Settings",
+            "items": [
+                {
+                    "type": "section",
+                    "sectionTitle": "Developer Settings",
+                    "sectionHelpMessage": "<strong>Advanced options for development and troubleshooting.</strong><br><br>Enable <strong>Support for incremental counters</strong> to turn on stateful commands that allow counter-based attributes to increment consistently across connector runs. This is required if you use counter-based attribute definition.<br><br>Use <strong>Reset accounts?</strong> during testing or troubleshooting to force the connector to rebuild accounts from scratch on the next run. This can help validate configuration changes but should be used carefully in production environments.",
+                    "items": [
+                        {
+                            "key": "spConnEnableStatefulCommands",
+                            "label": "Support for incremental counters",
+                            "required": true,
+                            "type": "toggle"
+                        },
+                        {
+                            "key": "reset",
+                            "label": "Reset accounts?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "provisioningTimeout",
+                            "label": "Provisioning timeout (seconds)",
+                            "type": "number",
+                            "required": true
+                        },
+                        {
+                            "key": "externalLoggingEnabled",
+                            "label": "Enable external logging?",
+                            "type": "toggle",
+                            "required": false
+                        },
+                        {
+                            "key": "externalLoggingUrl",
+                            "label": "External logging URL",
+                            "type": "url",
+                            "required": false,
+                            "parentKey": "externalLoggingEnabled",
+                            "parentValue": "true"
+                        },
+                        {
+                            "key": "externalLoggingLevel",
+                            "label": "External logging level",
+                            "type": "radio",
+                            "required": false,
+                            "parentKey": "externalLoggingEnabled",
+                            "parentValue": "true",
+                            "options": [
+                                { "label": "Error", "value": "error" },
+                                { "label": "Warn", "value": "warn" },
+                                { "label": "Info", "value": "info" },
+                                { "label": "Debug", "value": "debug" }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Advanced Connection Settings",
+                    "sectionHelpMessage": "<strong>Fine-tune API request handling and queue management.</strong><br><br>Enable <strong>Queue</strong> to use queue management for API requests, allowing you to control rate limiting and concurrency. When enabled, you can configure maximum concurrent requests and requests per second.<br><br>Enable <strong>Retry</strong> to automatically retry failed API requests. When enabled, you can configure the maximum number of retry attempts.<br><br>Configure <strong>Processing wait time</strong> to set the wait time (in milliseconds) for processing operations. This is reserved for future scheduling features.<br><br>Set <strong>Maximum concurrent requests</strong> to control how many API requests can run simultaneously (only used when queue is enabled).<br><br>Configure <strong>Retry delay</strong> to set the base delay (in milliseconds) between retry attempts for failed requests. For HTTP 429 responses, the retry delay is automatically calculated from the retry-after header.<br><br>Use <strong>Batch size</strong> to specify how many requests to include in a single processing batch.<br><br>Enable <strong>Batching</strong> to allow requests to be grouped and processed together for better efficiency.<br><br>Enable <strong>Priority processing</strong> to use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled).",
+                    "items": [
+                        {
+                            "key": "enableQueue",
+                            "label": "Enable queue?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Enable queue management for API requests with rate limiting and concurrency control"
+                        },
+                        {
+                            "key": "maxConcurrentRequests",
+                            "label": "Maximum concurrent requests",
+                            "type": "number",
+                            "required": false,
+                            "min": "1",
+                            "parentKey": "enableQueue",
+                            "parentValue": "true",
+                            "helpKey": "Maximum number of API requests to run concurrently (only used when queue is enabled)"
+                        },
+                        {
+                            "key": "enableRetry",
+                            "label": "Enable retry?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Enable automatic retry logic for failed API requests"
+                        },
+                        {
+                            "key": "processingWait",
+                            "label": "Processing wait time (milliseconds)",
+                            "type": "number",
+                            "required": true,
+                            "min": "0",
+                            "helpKey": "Wait time for processing operations (reserved for future scheduling features)"
+                        },
+                        {
+                            "key": "retryDelay",
+                            "label": "Retry delay (milliseconds)",
+                            "type": "number",
+                            "required": true,
+                            "min": "0",
+                            "helpKey": "Base delay between retry attempts for failed requests"
+                        },
+                        {
+                            "key": "enableBatching",
+                            "label": "Enable batching?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Enable batching of requests in the queue for better efficiency"
+                        },
+                        {
+                            "key": "batchSize",
+                            "label": "Batch size",
+                            "type": "number",
+                            "parentKey": "enableBatching",
+                            "parentValue": "true",
+                            "required": true,
+                            "min": "1",
+                            "helpKey": "Number of requests to include in a single processing batch"
+                        },
+                        {
+                            "key": "enablePriority",
+                            "label": "Enable priority processing?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Use prioritization when processing the queue"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "accountSchema": {
+        "displayAttribute": "uuid",
+        "identityAttribute": "uuid",
+        "attributes": [
+            {
+                "name": "uuid",
+                "description": "UUID",
+                "type": "string",
+                "required": true
+            },
+            {
+                "name": "name",
+                "description": "Account name",
+                "type": "string",
+                "required": true
+            },
+            {
+                "name": "history",
+                "description": "History",
+                "type": "string",
+                "multi": true
+            },
+            {
+                "name": "statuses",
+                "description": "Statuses",
+                "type": "string",
+                "multi": true,
+                "entitlement": true,
+                "managed": false,
+                "schemaObjectType": "status"
+            },
+            {
+                "name": "actions",
+                "description": "Actions",
+                "type": "string",
+                "multi": true,
+                "entitlement": true,
+                "managed": true,
+                "schemaObjectType": "action"
+            },
+            {
+                "name": "accounts",
+                "description": "Source account IDs",
+                "type": "string",
+                "multi": true,
+                "entitlement": false
+            },
+            {
+                "name": "missing-accounts",
+                "description": "Missing source account IDs",
+                "type": "string",
+                "multi": true,
+                "entitlement": false
+            },
+            {
+                "name": "reviews",
+                "description": "Reviews",
+                "type": "string",
+                "multi": true,
+                "entitlement": false
+            },
+            {
+                "name": "sources",
+                "description": "sources",
+                "type": "string",
+                "multi": false,
+                "entitlement": false
+            }
+        ]
+    },
+    "entitlementSchemas": [
+        {
+            "type": "status",
+            "identityAttribute": "id",
+            "displayAttribute": "name",
+            "attributes": [
+                {
+                    "name": "id",
+                    "type": "string",
+                    "description": "id"
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "description": "name"
+                },
+                {
+                    "name": "description",
+                    "type": "string",
+                    "description": "description"
+                }
+            ]
+        },
+        {
+            "type": "action",
+            "identityAttribute": "id",
+            "displayAttribute": "name",
+            "attributes": [
+                {
+                    "name": "id",
+                    "type": "string",
+                    "description": "id"
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "description": "name"
+                },
+                {
+                    "name": "description",
+                    "type": "string",
+                    "description": "description"
+                }
+            ]
+        }
+    ],
+    "accountCreateTemplate": {
+        "fields": [
+            {
+                "key": "name",
+                "label": "name",
+                "type": "string",
+                "required": true,
+                "initialValue": {
+                    "type": "identityAttribute",
+                    "attributes": {
+                        "name": "uid"
+                    }
+                }
+            }
+        ]
+    }
+}
