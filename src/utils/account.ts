@@ -3,18 +3,19 @@ import { ServiceRegistry } from '../services/serviceRegistry'
 import { assert } from './assert'
 import { FusionAccount } from '../model/account'
 
-export const fetchFusionAccount = async (id: string, schema?: AccountSchema): Promise<FusionAccount> => {
+export const fetchFusionAccount = async (nativeIdentity: string, schema?: AccountSchema): Promise<FusionAccount> => {
     const serviceRegistry = ServiceRegistry.getCurrent()
-    const { fusion, accounts, identities, schemas, sources } = serviceRegistry
+    const { fusion, identities, schemas, sources } = serviceRegistry
 
-    await schemas.setFusionAccountSchema(schema)
     await sources.fetchAllSources()
-    await accounts.fetchFusionAccount(id)
-    const account = accounts.fusionAccountsById.get(id)
-    const fusionAccount = accounts.fusionAccountsById.get(id)
-    assert(fusionAccount, 'Fusion account not found')
-    assert(fusionAccount.identityId, 'Identity ID not found')
-    await identities.fetchIdentityById(fusionAccount.identityId)
-    assert(account, 'Account ${id} not found')
+    await schemas.setFusionAccountSchema(schema)
+    await sources.fetchFusionAccount(nativeIdentity)
+    const account = sources.fusionAccountsByNativeIdentity.get(nativeIdentity)
+    assert(account, 'Fusion account not found')
+    assert(account.identityId, 'Identity ID not found')
+    await identities.fetchIdentityById(account.identityId)
+    account.attributes?.accounts?.forEach((id: string) => {
+        sources.fetchManagedAccount(id)
+    })
     return await fusion.processFusionAccount(account)
 }

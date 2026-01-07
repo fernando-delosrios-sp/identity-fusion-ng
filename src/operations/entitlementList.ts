@@ -1,4 +1,10 @@
-import { Response, StdEntitlementListInput, StdEntitlementListOutput } from '@sailpoint/connector-sdk'
+import {
+    ConnectorError,
+    ConnectorErrorType,
+    Response,
+    StdEntitlementListInput,
+    StdEntitlementListOutput,
+} from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 
 export const entitlementList = async (
@@ -7,10 +13,22 @@ export const entitlementList = async (
     res: Response<StdEntitlementListOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log } = serviceRegistry
+    const { log, sources, entitlements } = serviceRegistry
 
     try {
         log.info(`Listing entitlements for type ${input.type}...`)
+
+        switch (input.type) {
+            case 'status':
+                entitlements.listStatusEntitlements().forEach((x) => res.send(x))
+                break
+            case 'action':
+                await sources.fetchAllSources()
+                entitlements.listActionEntitlements().forEach((x) => res.send(x))
+                break
+            default:
+                throw new ConnectorError(`Invalid entitlement type ${input.type}`, ConnectorErrorType.Generic)
+        }
 
         // TODO: Implement entitlement listing logic
 
@@ -19,4 +37,3 @@ export const entitlementList = async (
         log.crash(`Failed to list entitlements for type ${input.type}`, error)
     }
 }
-

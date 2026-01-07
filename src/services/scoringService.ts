@@ -7,10 +7,7 @@ import { lig3 } from '../utils/lig'
  * Handles score calculation, threshold checking, and score formatting.
  */
 export class ScoringService {
-    analyzeFusionAccount(_fusionAccount: unknown, _fusionIdentities: unknown[]): void {
-        this.log.warn('analyzeFusionAccount not fully implemented')
-        throw new Error('Method not implemented.')
-    }
+    analyzeFusionAccount(_fusionAccount: unknown, _fusionIdentities: unknown[]): void {}
     private mergingMapByIdentity: Map<string, any> = new Map()
 
     constructor(

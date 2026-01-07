@@ -138,7 +138,7 @@ const attrSplit = (text: string): string[] => {
 /**
  * Concatenate array of strings into bracketed format: [value1] [value2]
  */
-const attrConcat = (list: string[]): string => {
+export const attrConcat = (list: string[]): string => {
     const set = new Set(list)
     return [...set]
         .sort()
@@ -513,7 +513,11 @@ export class AttributeService {
      */
     private async generateAttribute(definition: AttributeDefinition, fusionAccount: FusionAccount): Promise<void> {
         // Only generate if refresh is needed and attribute doesn't exist
-        if (!definition.refresh && fusionAccount.attributeBag.current[definition.name]) {
+        if (
+            !definition.refresh &&
+            !isUniqueAttribute(definition) &&
+            fusionAccount.attributeBag.current[definition.name]
+        ) {
             return
         }
 
@@ -580,7 +584,7 @@ export class AttributeService {
 
         const sourceAttributeMap =
             fusionAccount.type === 'identity' ? new Map([['identity', [attributeBag.identity]]]) : attributeBag.sources
-        const sourceOrder = fusionAccount.type === 'identity' ? ['identity'] : this.config.sources
+        const sourceOrder = fusionAccount.type === 'identity' ? ['identity'] : this.config.sources.map((sc) => sc.name)
 
         // If refresh is needed, process source attributes in established order
         if (needsRefresh && sourceAttributeMap.size > 0) {

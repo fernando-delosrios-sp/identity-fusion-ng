@@ -27,7 +27,7 @@ import { createRetriesConfig } from '../client/axios'
  * - Lazy API instance provisioning
  *
  * Domain-specific operations should live in their respective services
- * (AccountService, IdentityService, etc.) which use this client.
+ * (SourceService, IdentityService, etc.) which use this client.
  */
 export class ClientService {
     protected readonly queue: ApiQueue | null

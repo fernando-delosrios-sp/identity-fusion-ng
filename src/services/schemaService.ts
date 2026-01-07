@@ -1,7 +1,6 @@
 import { AttributeDefinition, Schema } from 'sailpoint-api-client'
-import { AccountSchema, SchemaAttribute } from '@sailpoint/connector-sdk'
+import { AccountSchema, Attributes, SchemaAttribute } from '@sailpoint/connector-sdk'
 import { AttributeMap, FusionConfig } from '../model/config'
-import { ClientService } from './clientService'
 import { LogService } from './logService'
 import { SourceService } from './sourceService'
 import { assert } from '../utils/assert'
@@ -40,18 +39,29 @@ const apiSchemaToAccountSchema = (apiSchema: Schema): AccountSchema => {
 export class SchemaService {
     private _fusionAccountSchema?: AccountSchema
     private attributeMap: Map<string, AttributeMap> = new Map()
+    private _fusionSchemaAttributeNames: string[] = []
 
     constructor(
         private config: FusionConfig,
         private log: LogService,
-        private client: ClientService,
         private sources: SourceService
     ) {
         this.attributeMap = new Map(config.attributeMaps?.map((x) => [x.newAttribute, x]) ?? [])
     }
 
+    public getFusionAttributeSubset(attributes: Attributes | null): Attributes {
+        if (!attributes) return {}
+
+        const fusionAttributes: Attributes = {}
+        for (const attribute of this._fusionSchemaAttributeNames) {
+            fusionAttributes[attribute] = attributes?.[attribute]
+        }
+        return fusionAttributes
+    }
+
     private async fetchFusionAccountSchema(): Promise<void> {
         this._fusionAccountSchema = await this.fetchAccountSchema(this.sources.fusionSourceId!)
+        this._fusionSchemaAttributeNames = this.fusionAccountSchema.attributes.map((x) => x.name!).sort()
     }
 
     public get fusionIdentityAttribute(): string {
@@ -88,7 +98,7 @@ export class SchemaService {
         return accountSchema
     }
 
-    private getAccountSchemaAttributes(schema: AccountSchema): SchemaAttribute[] {
+    private getAccountSchemaAttributes(schema: AccountSchema, sourceName: string): SchemaAttribute[] {
         const attributes: SchemaAttribute[] = []
         for (const attribute of schema.attributes) {
             const attributeMap = this.attributeMap.get(attribute.name!)
@@ -105,7 +115,7 @@ export class SchemaService {
                     attribute.multi = false
                 }
             }
-            attribute.description = attribute.description || `${attribute.name} from ${schema}`
+            attribute.description = attribute.description || `${attribute.name} from ${sourceName}`
             attributes.push(attribute)
         }
 
@@ -193,8 +203,8 @@ export class SchemaService {
 
         const accountSchemaAttributes: SchemaAttribute[] = []
         for (const source of managedSources.reverse()) {
-            const accountSchema = await this.fetchAccountSchema(source.id!)
-            const attributes = await this.getAccountSchemaAttributes(accountSchema)
+            const accountSchema = await this.fetchAccountSchema(source.id)
+            const attributes = this.getAccountSchemaAttributes(accountSchema, source.name)
             accountSchemaAttributes.push(...attributes)
         }
 

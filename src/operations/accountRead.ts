@@ -17,7 +17,7 @@ export const accountRead = async (
         const fusionAccount = await fetchFusionAccount(input.identity, input.schema)
         assert(fusionAccount, 'Fusion account not found')
 
-        fusion.listISCAccounts().forEach(res.send)
+        fusion.listISCAccounts().forEach((x) => res.send(x))
 
         log.info(`Account ${input.identity} read completed`)
     } catch (error) {

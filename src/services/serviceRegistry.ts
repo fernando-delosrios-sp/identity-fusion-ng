@@ -6,7 +6,6 @@ import { ClientService } from './clientService'
 import { SourceService } from './sourceService'
 import { FusionService } from './fusionService'
 import { IdentityService } from './identityService'
-import { AccountService } from './accountService'
 import { SchemaService } from './schemaService'
 import { FormService } from './formService'
 import { AttributeService } from './attributeService'
@@ -21,7 +20,6 @@ export class ServiceRegistry {
     public sources: SourceService
     public fusion: FusionService
     public identities: IdentityService
-    public accounts: AccountService
     public schemas: SchemaService
     public forms: FormService
     public attributes: AttributeService
@@ -39,14 +37,13 @@ export class ServiceRegistry {
 
         // Initialize services that don't depend on others
         this.sources = context.sourceService ?? new SourceService(this.config, this.log, this.client)
-        this.entitlements = context.entitlementService ?? new EntitlementService(this.config, this.log)
+        this.entitlements = context.entitlementService ?? new EntitlementService(this.log, this.sources)
         this.scoring = context.scoringService ?? new ScoringService(this.config, this.log)
         this.identities = context.identityService ?? new IdentityService(this.config, this.log, this.client)
         this.forms = context.formService ?? new FormService(this.config, this.log, this.client)
 
         // Initialize services that depend on others (in dependency order)
-        this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.client, this.sources)
-        this.accounts = context.accountService ?? new AccountService(this.log, this.client, this.sources)
+        this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)
         this.attributes =
             context.attributesService ?? new AttributeService(this.config, this.schemas, this.log, this.locks)
 
@@ -57,7 +54,7 @@ export class ServiceRegistry {
                 this.config,
                 this.log,
                 this.identities,
-                this.accounts,
+                this.sources,
                 this.forms,
                 this.attributes,
                 this.scoring,

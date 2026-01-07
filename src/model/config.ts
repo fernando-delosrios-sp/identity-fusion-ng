@@ -75,16 +75,22 @@ export interface ScopeSection {
     identityScopeQuery?: string
 }
 
+// Source Configuration
+export interface SourceConfig {
+    name: string
+    forceAggregation?: boolean
+    accountFilter?: string
+}
+
 // Sources Section
 export interface SourcesSection {
-    sources: string[]
-    forceAggregation: boolean
+    sources: SourceConfig[]
     /**
-     * Number of times to poll the aggregation task result when forceAggregation is enabled.
+     * Number of times to poll the aggregation task result when force aggregation is enabled.
      */
     taskResultRetries: number
     /**
-     * Wait time (in milliseconds) between task status polls when forceAggregation is enabled.
+     * Wait time (in milliseconds) between task status polls when force aggregation is enabled.
      */
     taskResultWait: number
 }

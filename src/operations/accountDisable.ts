@@ -18,7 +18,7 @@ export const accountDisable = async (
         assert(fusionAccount, 'Fusion account not found')
         fusionAccount.disable()
 
-        fusion.listISCAccounts().forEach(res.send)
+        fusion.listISCAccounts().forEach((x) => res.send(x))
 
         log.info(`Account ${input.identity} read completed`)
     } catch (error) {

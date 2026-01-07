@@ -108,19 +108,49 @@
                 {
                     "type": "section",
                     "sectionTitle": "Sources",
-                    "sectionHelpMessage": "<strong>Select the authoritative account sources that feed Identity Fusion.</strong><br><br>Use <strong>Authoritative Account Sources</strong> to list the sources whose accounts will be merged and evaluated when building Identity Fusion accounts.<br><br>Enable <strong>Force Aggregation Before Processing?</strong> to trigger a fresh aggregation of the configured sources before each run. This helps ensure that Identity Fusion always processes the most current account data, at the cost of longer run times.",
+                    "sectionHelpMessage": "<strong>Select the authoritative account sources that feed Identity Fusion.</strong><br><br>Use <strong>Authoritative Account Sources</strong> to configure each source whose accounts will be merged and evaluated when building Identity Fusion accounts. For each source, you can enable <strong>Force aggregation before processing?</strong> to trigger a fresh aggregation before each run, and optionally specify an <strong>Account filter</strong> to limit which accounts from that source are processed (uses Identity Security Cloud search/filter syntax). This helps ensure that Identity Fusion always processes the most current account data, at the cost of longer run times.<br><br>Use the global <strong>Aggregation task result retries</strong> and <strong>Aggregation task result wait time</strong> settings to control how many times and how often the connector polls aggregation task status for all sources with force aggregation enabled.",
                     "items": [
                         {
                             "key": "sources",
                             "label": "Authoritative account sources",
-                            "type": "list",
-                            "required": true
-                        },
-                        {
-                            "key": "forceAggregation",
-                            "label": "Force aggregation before processing?",
-                            "type": "toggle",
-                            "required": false
+                            "titleKey": "name",
+                            "subtitleKey": "accountFilter",
+                            "dragNDropEnabled": true,
+                            "deleteButton": true,
+                            "editButton": true,
+                            "addButton": true,
+                            "copyButton": true,
+                            "buttonLabel": "Add source",
+                            "type": "cardList",
+                            "required": true,
+                            "subMenus": [
+                                {
+                                    "label": "Source Configuration",
+                                    "items": [
+                                        {
+                                            "key": "name",
+                                            "label": "Source name",
+                                            "type": "text",
+                                            "required": true,
+                                            "helpKey": "Name of the authoritative account source"
+                                        },
+                                        {
+                                            "key": "forceAggregation",
+                                            "label": "Force aggregation before processing?",
+                                            "type": "toggle",
+                                            "required": false,
+                                            "helpKey": "Trigger a fresh aggregation of this source before each run"
+                                        },
+                                        {
+                                            "key": "accountFilter",
+                                            "label": "Account filter",
+                                            "type": "text",
+                                            "required": false,
+                                            "helpKey": "Filter query to limit which accounts from this source are processed (uses Identity Security Cloud search/filter syntax)"
+                                        }
+                                    ]
+                                }
+                            ]
                         },
                         {
                             "key": "taskResultRetries",
@@ -128,9 +158,7 @@
                             "type": "number",
                             "required": false,
                             "min": "0",
-                            "parentKey": "forceAggregation",
-                            "parentValue": "true",
-                            "helpKey": "Number of times to poll the aggregation task status before giving up (only used when force aggregation is enabled)"
+                            "helpKey": "Number of times to poll the aggregation task status before giving up (applies to all sources with force aggregation enabled)"
                         },
                         {
                             "key": "taskResultWait",
@@ -138,9 +166,7 @@
                             "type": "number",
                             "required": false,
                             "min": "0",
-                            "parentKey": "forceAggregation",
-                            "parentValue": "true",
-                            "helpKey": "Wait time between aggregation task status checks in milliseconds (only used when force aggregation is enabled)"
+                            "helpKey": "Wait time between aggregation task status checks in milliseconds (applies to all sources with force aggregation enabled)"
                         }
                     ]
                 },

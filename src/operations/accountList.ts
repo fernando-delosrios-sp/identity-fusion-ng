@@ -7,7 +7,7 @@ export const accountList = async (
     res: Response<StdAccountListOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion, accounts, forms, identities, schemas, sources, attributes } = serviceRegistry
+    const { log, fusion, forms, identities, schemas, sources, attributes } = serviceRegistry
 
     try {
         attributes.setStateWrapper(input.state)
@@ -17,10 +17,10 @@ export const accountList = async (
         fusion.checkAttributeDefinitions()
 
         const fetchPromises = [
-            accounts.fetchFusionAccounts(),
+            sources.fetchFusionAccounts(),
             forms.fetchFormData(),
             identities.fetchIdentities(),
-            accounts.fetchManagedAccounts(),
+            sources.fetchManagedAccounts(),
         ]
 
         await Promise.all(fetchPromises)
@@ -33,9 +33,8 @@ export const accountList = async (
         await fusion.processIdentityFusionDecisions()
         await fusion.processManagedAccounts()
 
-        for (const account of fusion.listISCAccounts()) {
-            res.send(account)
-        }
+        fusion.listISCAccounts().forEach((x) => res.send(x))
+
         await forms.cleanUpForms()
 
         log.info('Account listing completed')

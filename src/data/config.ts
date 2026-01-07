@@ -1,5 +1,5 @@
 import { ConnectorError, ConnectorErrorType, readConfig } from '@sailpoint/connector-sdk'
-import { InternalConfig, FusionConfig } from '../model/config'
+import { InternalConfig, FusionConfig, SourceConfig } from '../model/config'
 
 const internalConfig: Omit<InternalConfig, 'getScore'> = {
     requestsPerSecondConstant: 100,
@@ -60,12 +60,15 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     // ============================================================================
     // Source Settings defaults
     // ============================================================================
-    config.forceAggregation = config.forceAggregation ?? false
-    if (config.forceAggregation) {
-        // Defaults for task result polling when force aggregation is enabled
-        config.taskResultRetries = config.taskResultRetries ?? 5
-        config.taskResultWait = config.taskResultWait ?? 1000
-    }
+    // Set defaults for each source configuration
+    config.sources = config.sources.map((sourceConfig: SourceConfig) => ({
+        ...sourceConfig,
+        forceAggregation: sourceConfig.forceAggregation ?? false,
+        accountFilter: sourceConfig.accountFilter ?? undefined,
+    }))
+    // Global aggregation task polling defaults (used for all sources with force aggregation enabled)
+    config.taskResultRetries = config.taskResultRetries ?? 5
+    config.taskResultWait = config.taskResultWait ?? 1000
     config.correlateOnAggregation = config.correlateOnAggregation ?? false
     config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
