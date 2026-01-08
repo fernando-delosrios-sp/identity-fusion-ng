@@ -95,12 +95,10 @@ export class SourceService {
     public async fetchAllSources(): Promise<void> {
         this.log.debug('Fetching all sources')
         const { sourcesApi } = this.client
-        const requestParameters: SourcesApiListSourcesRequest = {}
-
-        const listSources = async (params: SourcesApiListSourcesRequest) => {
-            return await sourcesApi.listSources(params)
+        const listSources = async () => {
+            return await sourcesApi.listSources()
         }
-        const apiSources = await this.client.paginate(listSources, requestParameters)
+        const apiSources = await this.client.paginate(listSources)
         assert(apiSources.length > 0, 'Sources not found')
 
         // Build unified source info from SourceConfig + API IDs
@@ -226,10 +224,10 @@ export class SourceService {
         const requestParameters: AccountsApiGetAccountRequest = {
             id,
         }
-        const getAccount = async (params: AccountsApiGetAccountRequest) => {
-            return await accountsApi.getAccount(params)
+        const getAccount = async () => {
+            return await accountsApi.getAccount(requestParameters)
         }
-        const response = await this.client.execute(() => getAccount(requestParameters))
+        const response = await this.client.execute(getAccount)
         return response.data ?? undefined
     }
 
@@ -240,11 +238,20 @@ export class SourceService {
         this.log.debug('Fetching fusion account')
         const fusionAccount = await this.fetchSourceAccountByNativeIdentity(this.fusionSourceId, nativeIdentity)
         assert(fusionAccount, 'Fusion account not found')
-        this._fusionAccounts = [fusionAccount]
-        this.fusionAccountsByNativeIdentity = new Map(
-            this._fusionAccounts.map((account) => [account.nativeIdentity!, account])
-        )
-        this.fusionAccountsByName = new Map(this._fusionAccounts.map((account) => [account.name!, account]))
+        if (!this._fusionAccounts) {
+            this._fusionAccounts = []
+        }
+        this._fusionAccounts.push(fusionAccount)
+
+        if (!this.fusionAccountsByNativeIdentity) {
+            this.fusionAccountsByNativeIdentity = new Map()
+        }
+        this.fusionAccountsByNativeIdentity.set(fusionAccount.nativeIdentity!, fusionAccount)
+
+        if (!this.fusionAccountsByName) {
+            this.fusionAccountsByName = new Map()
+        }
+        this.fusionAccountsByName.set(fusionAccount.name!, fusionAccount)
         this.log.debug(`Fetched fusion account: ${fusionAccount.name}`)
     }
 
@@ -293,11 +300,11 @@ export class SourceService {
             filters,
         }
 
-        const listAccounts = async (params: AccountsApiListAccountsRequest) => {
-            return await accountsApi.listAccounts(params)
+        const listAccounts = async () => {
+            return await accountsApi.listAccounts(requestParameters)
         }
 
-        const response = await this.client.execute(() => listAccounts(requestParameters))
+        const response = await this.client.execute(listAccounts)
         const accounts = response.data ?? []
         return accounts[0]
     }
@@ -393,11 +400,11 @@ export class SourceService {
         const requestParameters: SourcesApiGetSourceSchemasRequest = {
             sourceId,
         }
-        const request = async () => {
+        const getSourceSchemas = async () => {
             const response = await sourcesApi.getSourceSchemas(requestParameters)
             return response.data ?? []
         }
-        const response = await this.client.execute(request)
+        const response = await this.client.execute(getSourceSchemas)
         return response
     }
 

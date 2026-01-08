@@ -32,8 +32,7 @@ export const accountList = async (
 
         await fusion.processIdentityFusionDecisions()
         await fusion.processManagedAccounts()
-
-        fusion.listISCAccounts().forEach((x) => res.send(x))
+        ;(await fusion.listISCAccounts()).forEach((x) => res.send(x))
 
         await forms.cleanUpForms()
 

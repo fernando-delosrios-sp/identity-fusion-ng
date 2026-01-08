@@ -1,4 +1,4 @@
-import { IdentityDocument, Search } from 'sailpoint-api-client'
+import { AccountsApi, AccountsApiUpdateAccountRequest, IdentityDocument, Search } from 'sailpoint-api-client'
 import { FusionConfig } from '../model/config'
 import { ClientService } from './clientService'
 import { LogService } from './logService'
@@ -61,6 +61,30 @@ export class IdentityService {
 
         const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
         this.identitiesById = new Map(identities.map((identity) => [identity.id, identity]))
+    }
+
+    public async correlateAccount(accountId: string, identityId: string): Promise<boolean> {
+        const { accountsApi } = this.client
+
+        const requestParameters: AccountsApiUpdateAccountRequest = {
+            id: accountId,
+            requestBody: [
+                {
+                    op: 'replace',
+                    path: '/identityId',
+                    value: identityId,
+                },
+            ],
+        }
+
+        const updateAccount = async () => {
+            return await accountsApi.updateAccount(requestParameters)
+        }
+
+        const response = await this.client.execute(updateAccount)
+
+        //TODO: handle response
+        return true
     }
 
     public getIdentityById(id?: string): IdentityDocument | undefined {

@@ -14,8 +14,10 @@ export const fetchFusionAccount = async (nativeIdentity: string, schema?: Accoun
     assert(account, 'Fusion account not found')
     assert(account.identityId, 'Identity ID not found')
     await identities.fetchIdentityById(account.identityId)
-    account.attributes?.accounts?.forEach((id: string) => {
-        sources.fetchManagedAccount(id)
-    })
+    await Promise.all(
+        account.attributes?.accounts?.map(async (id: string) => {
+            await sources.fetchManagedAccount(id)
+        }) ?? []
+    )
     return await fusion.processFusionAccount(account)
 }

@@ -53,6 +53,7 @@ export class FusionAccount {
     public actions: Set<string> = new Set()
     public reviews: Set<string> = new Set()
     public sources: Set<string> = new Set()
+    private _correlationPromises: Promise<void>[] = []
 
     private constructor(private config: FusionConfig) {}
 
@@ -88,6 +89,7 @@ export class FusionAccount {
         fusionAccount.statuses = new Set((account.attributes?.statuses as string[]) || [])
         fusionAccount.actions = new Set((account.attributes?.actions as string[]) || [])
         fusionAccount.sources = new Set((account.attributes?.sources as string[]) || [])
+        fusionAccount.history = account.attributes?.history ?? []
         fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
         fusionAccount._attributeBag.previous = account.attributes ?? {}
         fusionAccount._attributeBag.current = { ...(account.attributes ?? {}) }
@@ -349,20 +351,22 @@ export class FusionAccount {
         this.addHistory(`Source account removed: ${id}`)
     }
 
-    public async correlateMissingAccounts(): Promise<void> {
-        const missingAccounts = this._attributeBag.current['missing-accounts'] as any
-        if (missingAccounts instanceof Set) {
-            missingAccounts.forEach(this.correlateMissingAccount.bind(this))
-        }
+    public async correlateMissingAccounts(
+        fn: (accountId: string, identityId: string) => Promise<boolean>
+    ): Promise<void> {
+        this.missingAccountIds.forEach(async (id) => {
+            this._correlationPromises.push(this.correlateMissingAccount(id, fn))
+        })
     }
 
-    private async correlateMissingAccount(id: string): Promise<void> {
-        // TODO: Correlate the missing account
-        const missingAccounts = this._attributeBag.current['missing-accounts'] as any
-        if (missingAccounts instanceof Set) {
-            missingAccounts.delete(id)
+    private async correlateMissingAccount(
+        accountId: string,
+        fn: (accountId: string, identityId: string) => Promise<boolean>
+    ): Promise<void> {
+        if (await fn(accountId, this.identityId)) {
+            this.missingAccountIds.delete(accountId)
+            this.addHistory(`Missing account ${accountId} correlated`)
         }
-        this.addHistory(`Correlating missing account ${id}`)
     }
 
     public setAttributes(attributes: { [key: string]: any }) {
@@ -372,13 +376,7 @@ export class FusionAccount {
     }
 
     public addFusionDecision(decision: string): void {
-        if (!this._attributeBag.current.actions) {
-            this._attributeBag.current.actions = new Set<string>() as any
-        }
-        const actions = this._attributeBag.current.actions as any
-        if (actions instanceof Set) {
-            actions.add(decision)
-        }
+        this.actions.add(decision)
         this.addHistory(`Fusion decision added: ${decision}`)
     }
 
@@ -388,7 +386,8 @@ export class FusionAccount {
         // TODO: Edit the account
     }
 
-    public getISCAccount(): StdAccountListOutput {
+    public async getISCAccount(): Promise<StdAccountListOutput> {
+        Promise.all(this._correlationPromises)
         return {
             key: {
                 simple: {

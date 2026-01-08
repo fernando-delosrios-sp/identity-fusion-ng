@@ -96,6 +96,9 @@ export class FusionService {
         if (account.uncorrelated) {
             this._fusionAccounts.push(fusionAccount)
         } else {
+            if (this.config.correlateOnAggregation) {
+                await fusionAccount.correlateMissingAccounts(this.identities.correlateAccount.bind(this.identities))
+            }
             this._fusionIdentityMap.set(identityId, fusionAccount)
         }
 
@@ -215,7 +218,7 @@ export class FusionService {
         }
     }
 
-    public listISCAccounts(): StdAccountListOutput[] {
+    public async listISCAccounts(): Promise<StdAccountListOutput[]> {
         return [
             ...this._fusionAccounts.map((x) => this.getISCAccount(x)),
             ...Array.from(this._fusionIdentityMap.values()).map((x) => this.getISCAccount(x)),
