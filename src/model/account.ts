@@ -2,7 +2,8 @@ import { Account, IdentityDocument } from 'sailpoint-api-client'
 import { getDateFromISOString } from '../utils/date'
 import { FusionDecision } from './form'
 import { FusionConfig } from './config'
-import { Attributes, StdAccountListOutput } from '@sailpoint/connector-sdk'
+import { Attributes } from '@sailpoint/connector-sdk'
+import { compoundKeyUniqueIdAttribute } from '../services/attributeService'
 
 export type SimilarAccountMatch = {
     identity: IdentityDocument
@@ -26,7 +27,7 @@ type AttributeBag = {
 
 // TODO: Limit the size of the history array
 export class FusionAccount {
-    private _attributeBag: AttributeBag = {
+    public _attributeBag: AttributeBag = {
         previous: {},
         current: {},
         identity: {},
@@ -48,7 +49,7 @@ export class FusionAccount {
     public name?: string
     public displayName?: string
     public sourceName: string = ''
-    private _nativeIdentity: string = ''
+    private _nativeIdentity?: string
     public statuses: Set<string> = new Set()
     public actions: Set<string> = new Set()
     public reviews: Set<string> = new Set()
@@ -88,13 +89,17 @@ export class FusionAccount {
         fusionAccount.disabled = account.disabled ?? false
         fusionAccount.statuses = new Set((account.attributes?.statuses as string[]) || [])
         fusionAccount.actions = new Set((account.attributes?.actions as string[]) || [])
-        fusionAccount.sources = new Set((account.attributes?.sources as string[]) || [])
         fusionAccount.history = account.attributes?.history ?? []
         fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
         fusionAccount._attributeBag.previous = account.attributes ?? {}
+        fusionAccount._attributeBag.previous[compoundKeyUniqueIdAttribute] = account.uuid!
         fusionAccount._attributeBag.current = { ...(account.attributes ?? {}) }
         fusionAccount._identityId = account.identityId ?? ''
         fusionAccount.sourceName = config.cloudDisplayName ?? ''
+
+        if (fusionAccount.statuses.has('baseline')) {
+            fusionAccount.sources.add('Identities')
+        }
 
         return fusionAccount
     }
@@ -107,6 +112,7 @@ export class FusionAccount {
         fusionAccount._needsRefresh = true
         fusionAccount.disabled = identity.disabled ?? false
         fusionAccount._identityId = identity.id ?? ''
+        fusionAccount._attributeBag.previous = identity.attributes ?? {}
         fusionAccount.sourceName = 'Identities'
         fusionAccount.sources.add('Identities')
         fusionAccount.setBaseline()
@@ -134,6 +140,7 @@ export class FusionAccount {
         fusionAccount.disabled = account.disabled ?? false
         fusionAccount.sourceName = account.sourceName ?? ''
         fusionAccount.name = account.name ?? ''
+        fusionAccount._previousAccountIds.add(account.id!)
         fusionAccount.setManagedAccount(account)
         fusionAccount.sources.add(account.sourceName!)
         fusionAccount.setUnmatched()
@@ -156,15 +163,29 @@ export class FusionAccount {
     }
 
     public addManagedAccountLayer(accountsById: Map<string, Account>): void {
-        accountsById.forEach((account, id) => {
+        // Collect keys to delete first to avoid modifying map during iteration
+        const keysToDelete: string[] = []
+
+        // Use for...of instead of forEach for better control and to ensure we're working with the actual map
+        for (const [id, account] of accountsById.entries()) {
             if (this._previousAccountIds.has(id)) {
                 this.setManagedAccount(account)
-                accountsById.delete(id)
+                keysToDelete.push(id)
             } else if (account.identityId === this.identityId) {
                 this.setManagedAccount(account)
-                accountsById.delete(id)
+                keysToDelete.push(id)
             }
-        })
+        }
+
+        // Delete collected keys after iteration completes
+        // This modifies the original map reference passed to this function
+        for (const id of keysToDelete) {
+            const deleted = accountsById.delete(id)
+            if (!deleted) {
+                // This should never happen, but helps debug if the map reference is wrong
+                console.warn(`Failed to delete key ${id} from map - key may not exist or map reference is wrong`)
+            }
+        }
 
         if (this.accountIds.size === 0 && !this.statuses.has('baseline')) {
             this.statuses.add('orphan')
@@ -227,7 +248,7 @@ export class FusionAccount {
 
         if (this.missingAccountIds.size === 0) {
             this.statuses.delete('uncorrelated')
-            this.statuses.add('correlated')
+            this.actions.add('correlated')
         }
     }
 
@@ -237,7 +258,7 @@ export class FusionAccount {
         this.accountIds.add(accountId)
         this.missingAccountIds.add(accountId)
 
-        this.statuses.delete('correlated')
+        this.actions.delete('correlated')
         this.statuses.add('uncorrelated')
     }
 
@@ -249,7 +270,7 @@ export class FusionAccount {
     /**
      * Get the native identity (used as primary key in IndexedCollection)
      */
-    public get nativeIdentity(): string {
+    public get nativeIdentity(): string | undefined {
         return this._nativeIdentity
     }
 
@@ -384,18 +405,6 @@ export class FusionAccount {
 
     public async editAccount() {
         // TODO: Edit the account
-    }
-
-    public async getISCAccount(): Promise<StdAccountListOutput> {
-        Promise.all(this._correlationPromises)
-        return {
-            key: {
-                simple: {
-                    id: this.nativeIdentity,
-                },
-            },
-            attributes: this.attributeBag.current,
-        }
     }
 
     public enable(): void {

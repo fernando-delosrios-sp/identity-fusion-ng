@@ -1,7 +1,7 @@
 import { ConnectorError, ConnectorErrorType, readConfig } from '@sailpoint/connector-sdk'
-import { InternalConfig, FusionConfig, SourceConfig } from '../model/config'
+import { FusionConfig, SourceConfig } from '../model/config'
 
-const internalConfig: Omit<InternalConfig, 'getScore'> = {
+const internalConfig = {
     requestsPerSecondConstant: 100,
     pageSize: 250,
     tokenUrlPath: '/oauth/token',
@@ -72,6 +72,11 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.correlateOnAggregation = config.correlateOnAggregation ?? false
     config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
+
+    // ============================================================================
+    // Attribute Definition Settings defaults
+    // ============================================================================
+    config.maxAttempts = config.maxAttempts ?? 100
 
     // ============================================================================
     // Fusion Settings defaults

@@ -61,7 +61,6 @@ export class SchemaService {
 
     private async fetchFusionAccountSchema(): Promise<void> {
         this._fusionAccountSchema = await this.fetchAccountSchema(this.sources.fusionSourceId!)
-        this._fusionSchemaAttributeNames = this.fusionAccountSchema.attributes.map((x) => x.name!).sort()
     }
 
     public get fusionIdentityAttribute(): string {
@@ -78,6 +77,7 @@ export class SchemaService {
         } else {
             await this.fetchFusionAccountSchema()
         }
+        this._fusionSchemaAttributeNames = this.fusionAccountSchema.attributes.map((x) => x.name!).sort()
     }
 
     /**
@@ -161,7 +161,7 @@ export class SchemaService {
         return attributes
     }
 
-    private getFusionAttributes(): SchemaAttribute[] {
+    private listFusionAttributes(): SchemaAttribute[] {
         return fusionAccountSchemaAttributes
     }
 
@@ -190,7 +190,7 @@ export class SchemaService {
         }
 
         // Define static attributes
-        const fusionAttributes = this.getFusionAttributes()
+        const fusionAttributes = this.listFusionAttributes()
 
         // Define attribute map attributes
         const attributeMappingAttributes = this.getAttributeMappingAttributes()

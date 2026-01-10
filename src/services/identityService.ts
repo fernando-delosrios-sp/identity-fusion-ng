@@ -39,7 +39,10 @@ export class IdentityService {
             }
 
             const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
-            this.identitiesById = new Map(identities.map((identity) => [identity.id, identity]))
+            this.identitiesById = new Map(
+                identities.map((identity) => [identity.protected ? '-' : identity.id, identity])
+            )
+            this.identitiesById.delete('-')
         } else {
             this.log.info('No identity scope query defined, skipping identity fetch.')
             this.identitiesById = new Map()

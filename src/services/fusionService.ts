@@ -1,5 +1,5 @@
-import { Account, IdentityDocument } from 'sailpoint-api-client'
-import { SimpleKeyType, StdAccountListOutput } from '@sailpoint/connector-sdk'
+import { Account, IdentityDocument, SourcesApiUpdateSourceRequest } from 'sailpoint-api-client'
+import { StdAccountListOutput } from '@sailpoint/connector-sdk'
 import { FusionConfig } from '../model/config'
 import { LogService } from './logService'
 import { FormService } from './formService'
@@ -38,25 +38,28 @@ export class FusionService {
         })
     }
 
-    public checkAttributeDefinitions(): void {
-        const { fusionIdentityAttribute } = this.schemas
-        if (!this.attributes.hasAttributeDefinition(fusionIdentityAttribute)) {
-            this.attributes.addAttributeDefinition({
-                name: fusionIdentityAttribute,
-                type: 'uuid',
-                normalize: false,
-                spaces: false,
-                refresh: false,
-                values: new Set(),
-            })
+    public isReset(): boolean {
+        return this.config.reset
+    }
+
+    public async disableReset(): Promise<void> {
+        const fusionSourceId = this.sources.fusionSourceId
+        const requestParameters: SourcesApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperation: [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/reset',
+                    value: false,
+                },
+            ],
         }
+        await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
     public async processFusionAccounts(): Promise<void> {
         const { fusionAccounts } = this.sources
-        this.log.debug(`Processing ${fusionAccounts.length} fusion account(s)`)
         await Promise.all(fusionAccounts.map((x: Account) => this.processFusionAccount(x)))
-        this.log.debug('Fusion accounts processing completed')
     }
 
     public async processFusionAccount(account: Account): Promise<FusionAccount> {
@@ -64,6 +67,7 @@ export class FusionService {
             !this._fusionIdentityMap.has(account.nativeIdentity),
             `Fusion account found for ${account.nativeIdentity}. Should not process Fusion accounts more than once.`
         )
+        const managedAccountsMap = this.sources.managedAccountsById
         const identityId = account.identityId!
 
         const fusionAccount = FusionAccount.fromFusionAccount(this.config, account)
@@ -79,24 +83,25 @@ export class FusionService {
             fusionAccount.addFusionDecisionLayer(fusionDecision)
         }
 
-        const { managedAccountsById } = this.sources
-        fusionAccount.addManagedAccountLayer(managedAccountsById)
+        // Pass the captured map reference directly
+        fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
         if (identity) {
             const editDecision = this.forms.getEditDecision(identity.attributes?.uid)
             fusionAccount.addEditDecisionLayer(editDecision)
         }
 
+        await this.attributes.registerUniqueAttributes(fusionAccount)
         if (fusionAccount.needsRefresh) {
             this.attributes.mapAttributes(fusionAccount)
-            await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+            await this.attributes.refreshAttributes(fusionAccount)
         }
-        await this.attributes.registerUniqueAttributes(fusionAccount)
 
         if (account.uncorrelated) {
             this._fusionAccounts.push(fusionAccount)
         } else {
             if (this.config.correlateOnAggregation) {
+                // TODO: rearrange
                 await fusionAccount.correlateMissingAccounts(this.identities.correlateAccount.bind(this.identities))
             }
             this._fusionIdentityMap.set(identityId, fusionAccount)
@@ -107,23 +112,24 @@ export class FusionService {
 
     public async processIdentities(): Promise<void> {
         const { identities } = this.identities
-        this.log.debug(`Processing ${identities.length} identity/identities`)
+        this.log.debug(`Processing ${identities.length} identities`)
         await Promise.all(identities.map((x) => this.processIdentity(x)))
         this.log.debug('Identities processing completed')
     }
 
     public async processIdentity(identity: IdentityDocument): Promise<void> {
+        const { fusionDisplayAttribute } = this.schemas
         const identityId = identity.id
 
         if (!this._fusionIdentityMap.has(identityId)) {
             const fusionAccount = FusionAccount.fromIdentity(this.config, identity)
             fusionAccount.addIdentityLayer(identity)
 
-            const { managedAccountsById } = this.sources
-            fusionAccount.addManagedAccountLayer(managedAccountsById)
+            fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
 
             this.attributes.mapAttributes(fusionAccount)
             await this.attributes.refreshAttributes(fusionAccount)
+            fusionAccount.attributes[fusionDisplayAttribute] = identity.name
 
             this._fusionIdentityMap.set(identityId, fusionAccount)
         }
@@ -144,7 +150,7 @@ export class FusionService {
         fusionAccount.addManagedAccountLayer(managedAccountsById)
 
         this.attributes.mapAttributes(fusionAccount)
-        this.attributes.refreshAttributes(fusionAccount)
+        await this.attributes.refreshAttributes(fusionAccount)
 
         this._fusionAccounts.push(fusionAccount)
     }
@@ -169,8 +175,7 @@ export class FusionService {
         const fusionAccount = FusionAccount.fromManagedAccount(this.config, account)
         const fusionIdentities = Array.from(this._fusionAccounts.values())
 
-        const { managedAccountsById } = this.sources
-        fusionAccount.addManagedAccountLayer(managedAccountsById)
+        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
 
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshNonUniqueAttributes(fusionAccount)
@@ -201,8 +206,9 @@ export class FusionService {
     }
 
     private getISCAccount(fusionAccount: FusionAccount): StdAccountListOutput {
-        const { fusionIdentityAttribute } = this.schemas
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
+        const disabled = fusionAccount.disabled
+        const key = this.attributes.getSimpleKey(fusionAccount)
         attributes.sources = attrConcat(Array.from(fusionAccount.sources))
         attributes.accounts = Array.from(fusionAccount.accountIds)
         attributes.history = fusionAccount.history
@@ -210,11 +216,11 @@ export class FusionService {
         attributes.reviews = Array.from(fusionAccount.reviews)
         attributes.statuses = Array.from(fusionAccount.statuses)
         attributes.actions = Array.from(fusionAccount.actions)
-        const id = attributes[fusionIdentityAttribute] as string
+
         return {
-            key: createKey(id),
+            key,
             attributes,
-            disabled: fusionAccount.disabled,
+            disabled,
         }
     }
 
@@ -226,10 +232,10 @@ export class FusionService {
     }
 }
 
-export const createKey = (id: string): SimpleKeyType => {
-    return {
-        simple: {
-            id,
-        },
-    }
-}
+// export const createKey = (id: string): SimpleKeyType => {
+//     return {
+//         simple: {
+//             id,
+//         },
+//     }
+// }

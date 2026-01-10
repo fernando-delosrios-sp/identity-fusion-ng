@@ -4,11 +4,12 @@ import {
     Account,
     AccountsApiListAccountsRequest,
     SourcesApiGetSourceSchemasRequest,
-    SourcesApiListSourcesRequest,
     SearchApiSearchPostRequest,
     SourcesV2025ApiImportAccountsRequest,
     TaskManagementV2025ApiGetTaskStatusRequest,
     AccountsApiGetAccountRequest,
+    SourcesApiUpdateSourceRequest,
+    Source,
 } from 'sailpoint-api-client'
 import { BaseConfig, FusionConfig, SourceConfig } from '../model/config'
 import { ClientService } from './clientService'
@@ -38,7 +39,7 @@ export class SourceService {
     // Account caching
     public managedAccountsById: Map<string, Account> = new Map()
     public managedAccountsByName: Map<string, Account> = new Map()
-    private _managedAccounts?: Account[]
+    private managedAccounts?: Account[]
 
     public fusionAccountsByNativeIdentity: Map<string, Account> = new Map()
     public fusionAccountsByName: Map<string, Account> = new Map()
@@ -82,10 +83,10 @@ export class SourceService {
         return this._allSources
     }
 
-    public get managedAccounts(): Account[] {
-        assert(this._managedAccounts, 'Managed accounts have not been loaded')
-        return this._managedAccounts
-    }
+    // public get managedAccounts(): Account[] {
+    //     assert(this.managedAccounts, 'Managed accounts have not been loaded')
+    //     return this.managedAccounts
+    // }
 
     public get fusionAccounts(): Account[] {
         assert(this._fusionAccounts, 'Fusion accounts have not been loaded')
@@ -211,12 +212,12 @@ export class SourceService {
      */
     public async fetchManagedAccounts(): Promise<void> {
         this.log.debug(`Fetching managed accounts from ${this.managedSources.length} source(s)`)
-        this._managedAccounts = (
+        this.managedAccounts = (
             await Promise.all(this.managedSources.map((s) => this.fetchSourceAccountsById(s.id)))
         ).flat()
-        this.managedAccountsById = new Map(this._managedAccounts.map((account) => [account.id!, account]))
-        this.managedAccountsByName = new Map(this._managedAccounts.map((account) => [account.name!, account]))
-        this.log.debug(`Fetched ${this._managedAccounts.length} managed account(s)`)
+        this.managedAccountsById = new Map(this.managedAccounts.map((account) => [account.id!, account]))
+        this.managedAccountsByName = new Map(this.managedAccounts.map((account) => [account.name!, account]))
+        this.log.debug(`Fetched ${this.managedAccounts.length} managed account(s)`)
     }
 
     private async fetchAccountById(id: string): Promise<Account | undefined> {
@@ -261,10 +262,10 @@ export class SourceService {
     public async fetchManagedAccount(id: string): Promise<void> {
         const managedAccount = await this.fetchAccountById(id)
         assert(managedAccount, 'Managed account not found')
-        if (!this._managedAccounts) {
-            this._managedAccounts = []
+        if (!this.managedAccounts) {
+            this.managedAccounts = []
         }
-        this._managedAccounts.push(managedAccount)
+        this.managedAccounts.push(managedAccount)
 
         if (!this.managedAccountsById) {
             this.managedAccountsById = new Map()
@@ -432,5 +433,14 @@ export class SourceService {
 
         await Promise.all(aggregationPromises)
         this.log.debug('Source aggregation completed')
+    }
+
+    public async patchSourceConfig(id: string, requestParameters: SourcesApiUpdateSourceRequest): Promise<Source> {
+        const { sourcesApi } = this.client
+        const updateSource = async () => {
+            const response = await sourcesApi.updateSource(requestParameters)
+            return response.data
+        }
+        return await this.client.execute(updateSource)
     }
 }

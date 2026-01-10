@@ -2,14 +2,17 @@ import { FusionConfig, AttributeMap, AttributeDefinition } from '../model/config
 import { LogService } from './logService'
 import { FusionAccount } from '../model/account'
 import { SchemaService } from './schemaService'
-import { Attributes } from '@sailpoint/connector-sdk'
+import { Attributes, CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType } from '@sailpoint/connector-sdk'
 import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from '../utils/formatting'
 import { LockService } from './lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { v4 as uuidv4 } from 'uuid'
 import { assert } from '../utils/assert'
+import { SourcesApiUpdateSourceRequest } from 'sailpoint-api-client'
+import { SourceService } from './sourceService'
 
 const uniqueAttributeTypes = ['unique', 'uuid', 'counter']
+export const compoundKeyUniqueIdAttribute = 'CompoundKey.uniqueId'
 
 const isUniqueAttribute = (definition: AttributeDefinition): boolean => {
     return definition.type !== undefined && uniqueAttributeTypes.includes(definition.type)
@@ -30,11 +33,23 @@ export class StateWrapper {
             log.info(`Initializing StateWrapper with state: ${JSON.stringify(state)}`)
         }
         try {
-            this.state = new Map(Object.entries(state || {}))
-        } catch {
-            if (log) {
-                log.error('Failed to convert state object to Map. Initializing with empty Map')
+            // Handle undefined, null, or empty state
+            if (state && typeof state === 'object' && Object.keys(state).length > 0) {
+                this.state = new Map(Object.entries(state))
+                if (log) {
+                    log.debug(`Loaded ${this.state.size} counter values from state`)
+                }
+            } else {
+                this.state = new Map()
+                if (log) {
+                    log.debug('Initializing with empty state (no previous counter values)')
+                }
             }
+        } catch (error) {
+            if (log) {
+                log.error(`Failed to convert state object to Map: ${error}. Initializing with empty Map`)
+            }
+            this.state = new Map()
         }
     }
 
@@ -59,40 +74,48 @@ export class StateWrapper {
     /**
      * Get a persistent counter function (for counter-based attributes)
      * Returns an async function that uses locks for thread safety in parallel processing
+     * Counters must be initialized via initializeCounters() before use
      */
-    getCounter(key: string, start: number = 1): () => Promise<number> {
+    getCounter(key: string): () => Promise<number> {
         if (this.log) {
             this.log.debug(`Getting counter for key: ${key}`)
         }
         return async () => {
             const lockKey = `counter:${key}`
 
-            if (this.locks) {
-                // Use lock service for thread-safe counter increment
-                return await this.locks.withLock(lockKey, async () => {
-                    const currentValue = this.state.get(key) ?? start - 1
-                    const nextValue = currentValue + 1
-                    this.state.set(key, nextValue)
+            return await this.locks!.withLock(lockKey, async () => {
+                // Ensure counter exists (should have been initialized, but check for safety)
+                if (!this.state.has(key)) {
+                    const error = new Error(`Counter ${key} was not initialized. Call initializeCounters() first.`)
                     if (this.log) {
-                        this.log.debug(`Persistent counter for key ${key} incremented to: ${nextValue}`)
+                        this.log.error(error.message)
                     }
-                    return nextValue
-                })
-            } else {
-                // Fallback to non-locked operation (not thread-safe)
-                const currentValue = this.state.get(key) ?? start - 1
+                    throw error
+                }
+
+                const currentValue = this.state.get(key)!
                 const nextValue = currentValue + 1
                 this.state.set(key, nextValue)
+                // Verify the state was actually updated
+                const verifyValue = this.state.get(key)
+                if (verifyValue !== nextValue) {
+                    throw new Error(
+                        `State update failed! Set ${key} to ${nextValue} but got ${verifyValue} when reading back`
+                    )
+                }
                 if (this.log) {
-                    this.log.debug(`Persistent counter for key ${key} incremented to: ${nextValue}`)
+                    this.log.debug(
+                        `Persistent counter for key ${key} incremented from ${currentValue} to: ${nextValue} (verified: ${verifyValue})`
+                    )
                 }
                 return nextValue
-            }
+            })
         }
     }
 
     /**
      * Initialize a counter with a start value if it doesn't exist
+     * Sets the counter to (start - 1) so that the first increment returns 'start'
      * Uses locks for thread safety in parallel processing
      */
     async initCounter(key: string, start: number): Promise<void> {
@@ -101,13 +124,21 @@ export class StateWrapper {
         if (this.locks) {
             await this.locks.withLock(lockKey, async () => {
                 if (!this.state.has(key)) {
-                    this.state.set(key, start)
+                    // Set to start - 1 so first increment returns 'start'
+                    this.state.set(key, start - 1)
+                    if (this.log) {
+                        this.log.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
+                    }
                 }
             })
         } else {
             // Fallback to non-locked operation (not thread-safe)
             if (!this.state.has(key)) {
-                this.state.set(key, start)
+                // Set to start - 1 so first increment returns 'start'
+                this.state.set(key, start - 1)
+                if (this.log) {
+                    this.log.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
+                }
             }
         }
     }
@@ -263,6 +294,7 @@ const buildAttributeMappingConfig = (
     }
 }
 
+const fusionStateConfigPath = '/connectorAttributes/fusionState'
 /**
  * Service for attribute mapping, attribute definition, and UUID management.
  * Combines functionality for mapping attributes from source accounts and generating unique IDs.
@@ -274,7 +306,8 @@ export class AttributeService {
 
     constructor(
         private config: FusionConfig,
-        private schema: SchemaService,
+        private schemas: SchemaService,
+        private sources: SourceService,
         private log: LogService,
         private locks: LockService
     ) {
@@ -285,23 +318,85 @@ export class AttributeService {
                 ...x,
                 values: new Set<string>(),
             })) ?? []
+
+        this.setStateWrapper(config.fusionState)
     }
 
-    private get attributeDefinitionConfig(): AttributeDefinition[] {
-        return this._attributeDefinitionConfig
+    public checkNativeIdentityDefinition(): void {
+        const { fusionIdentityAttribute } = this.schemas
+        if (!this._attributeDefinitionConfig.find((x) => x.name === fusionIdentityAttribute)) {
+            this._attributeDefinitionConfig.push({
+                name: fusionIdentityAttribute,
+                type: 'normal',
+                normalize: true,
+                spaces: true,
+                refresh: false,
+                overwrite: false,
+            })
+        }
+    }
+
+    public async saveState(): Promise<void> {
+        const fusionSourceId = this.sources.fusionSourceId
+        const stateObject = await this.getStateObject()
+
+        this.log.info(`Saving state object: ${JSON.stringify(stateObject)}`)
+        const requestParameters: SourcesApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperation: [
+                {
+                    op: 'add',
+                    path: fusionStateConfigPath,
+                    value: stateObject,
+                },
+            ],
+        }
+        await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
+    }
+
+    public async getStateObject(): Promise<{ [key: string]: number }> {
+        // Wait for all pending counter increments to complete before reading state
+        if (this.locks && typeof this.locks.waitForAllPendingOperations === 'function') {
+            await this.locks.waitForAllPendingOperations()
+        }
+        const stateWrapper = this.getStateWrapper()
+
+        // Debug: Log the state map directly before converting
+        if (this.log) {
+            const directStateEntries = Array.from(stateWrapper.state.entries())
+            this.log.debug(
+                `Reading state - StateWrapper has ${stateWrapper.state.size} entries: ${JSON.stringify(Object.fromEntries(directStateEntries))}`
+            )
+        }
+
+        const state = stateWrapper.getState()
+
+        // Debug: Log what getState() returns
+        if (this.log) {
+            this.log.debug(`getState() returned: ${JSON.stringify(state)}`)
+            // Verify they match
+            const directState = Object.fromEntries(stateWrapper.state.entries())
+            if (JSON.stringify(state) !== JSON.stringify(directState)) {
+                this.log.error(
+                    `State mismatch! getState()=${JSON.stringify(state)}, direct=${JSON.stringify(directState)}`
+                )
+            }
+        }
+
+        return state
     }
 
     private getAttributeDefinition(name: string): AttributeDefinition | undefined {
         return this._attributeDefinitionConfig.find((d) => d.name === name)
     }
 
-    public hasAttributeDefinition(name: string): boolean {
-        return this._attributeDefinitionConfig.find((d) => d.name === name) !== undefined
-    }
+    // public hasAttributeDefinition(name: string): boolean {
+    //     return this._attributeDefinitionConfig.find((d) => d.name === name) !== undefined
+    // }
 
-    public addAttributeDefinition(definition: AttributeDefinition): void {
-        this._attributeDefinitionConfig.push(definition)
-    }
+    // public addAttributeDefinition(definition: AttributeDefinition): void {
+    //     this._attributeDefinitionConfig.push(definition)
+    // }
 
     /**
      * Set state wrapper for counter-based attributes
@@ -309,6 +404,52 @@ export class AttributeService {
      */
     public setStateWrapper(state: any): void {
         this._stateWrapper = new StateWrapper(state, this.log, this.locks)
+    }
+
+    /**
+     * Initialize all counter-based attributes from configuration
+     * Should be called once after setStateWrapper to ensure all counters are initialized
+     */
+    public async initializeCounters(): Promise<void> {
+        const stateWrapper = this.getStateWrapper()
+        const counterDefinitions = this._attributeDefinitionConfig.filter((def) => def.type === 'counter')
+
+        if (counterDefinitions.length === 0) {
+            return
+        }
+
+        if (this.log) {
+            this.log.debug(`Initializing ${counterDefinitions.length} counter-based attributes`)
+            // Log existing counter values before initialization
+            const existingCounters = Object.fromEntries(
+                Array.from(stateWrapper.state.entries()).filter(([key]) =>
+                    counterDefinitions.some((def) => def.name === key)
+                )
+            )
+            if (Object.keys(existingCounters).length > 0) {
+                this.log.debug(`Preserving existing counter values: ${JSON.stringify(existingCounters)}`)
+            }
+        }
+
+        // Initialize all counters in parallel (each initCounter handles its own locking)
+        await Promise.all(
+            counterDefinitions.map((def) => {
+                const start = def.counterStart ?? 1
+                return stateWrapper.initCounter(def.name, start)
+            })
+        )
+
+        if (this.log) {
+            // Log final counter values after initialization
+            const finalCounters: { [key: string]: number } = {}
+            counterDefinitions.forEach((def) => {
+                const value = stateWrapper.state.get(def.name)
+                if (value !== undefined) {
+                    finalCounters[def.name] = value
+                }
+            })
+            this.log.debug(`All counter-based attributes initialized. Current values: ${JSON.stringify(finalCounters)}`)
+        }
     }
 
     private getStateWrapper(): StateWrapper {
@@ -379,6 +520,7 @@ export class AttributeService {
 
     /**
      * Generate a counter-based attribute value
+     * Counters are initialized in accountList via initializeCounters() before use
      */
     private async generateCounterAttribute(
         definition: AttributeDefinition,
@@ -386,9 +528,7 @@ export class AttributeService {
     ): Promise<string | undefined> {
         const stateWrapper = this.getStateWrapper()
         const context = this.buildVelocityContext(fusionAccount)
-        const counterStart = definition.counterStart ?? 1
-        const counterFn = stateWrapper.getCounter(definition.name, counterStart)
-        await stateWrapper.initCounter(definition.name, counterStart)
+        const counterFn = stateWrapper.getCounter(definition.name)
         const digits = definition.digits ?? 1
         const counterValue = await counterFn()
         context.counter = padNumber(counterValue, digits)
@@ -416,7 +556,7 @@ export class AttributeService {
             let generatedValue: string | undefined
             let isUnique = false
             let attempts = 0
-            const maxAttempts = 100 // Prevent infinite loops
+            const maxAttempts = this.config.maxAttempts ?? 100 // Prevent infinite loops
 
             while (!isUnique && attempts < maxAttempts) {
                 // Generate a candidate value - generateAttributeValue will check against registeredValues
@@ -471,7 +611,7 @@ export class AttributeService {
 
             let generatedValue: string | undefined
             let attempts = 0
-            const maxAttempts = 100 // Prevent infinite loops (UUID collisions are extremely rare)
+            const maxAttempts = this.config.maxAttempts ?? 100 // Prevent infinite loops (UUID collisions are extremely rare)
 
             // Keep generating UUIDs until we find one that's unique
             while (attempts < maxAttempts) {
@@ -512,13 +652,25 @@ export class AttributeService {
      * For unique/uuid attributes, the entire generation process (fetch values, generate, check, register) is protected by a lock
      */
     private async generateAttribute(definition: AttributeDefinition, fusionAccount: FusionAccount): Promise<void> {
-        // Only generate if refresh is needed and attribute doesn't exist
-        if (
-            !definition.refresh &&
-            !isUniqueAttribute(definition) &&
-            fusionAccount.attributeBag.current[definition.name]
-        ) {
-            return
+        // Counter attributes always generate (they maintain state across runs)
+        if (definition.type === 'counter') {
+            // Continue to generation logic below
+        }
+        // If overwrite is true, always generate (to overwrite existing values)
+        else if (definition.overwrite) {
+            // Continue to generation logic below
+        }
+        // If overwrite is false, check if we should skip generation
+        else {
+            // For normal attributes: don't generate if refresh is not needed and the attribute already exists
+            if (!definition.refresh && !isUniqueAttribute(definition) && fusionAccount.attributes[definition.name]) {
+                return
+            }
+
+            // For unique/uuid attributes: don't generate if the attribute already exists
+            if (isUniqueAttribute(definition) && fusionAccount.attributes[definition.name]) {
+                return
+            }
         }
 
         let value: string | undefined
@@ -557,7 +709,7 @@ export class AttributeService {
     private get attributeMappingConfig(): Map<string, AttributeMappingConfig> {
         if (!this._attributeMappingConfig) {
             this._attributeMappingConfig = new Map()
-            const schemaAttributes = this.schema.getSchemaAttributes()
+            const schemaAttributes = this.schemas.getSchemaAttributes()
             for (const schemaAttr of schemaAttributes) {
                 const attrName = schemaAttr.name!
                 this._attributeMappingConfig.set(
@@ -576,39 +728,42 @@ export class AttributeService {
      * Uses schema attributes merged with attributeMaps to determine processing configuration.
      */
     public mapAttributes(fusionAccount: FusionAccount): void {
-        const attributeBag = fusionAccount.attributeBag
-        const needsRefresh = fusionAccount.needsRefresh
+        const { attributeBag, needsRefresh } = fusionAccount
 
         // Start with previous attributes as default
         const attributes = { ...attributeBag.previous }
 
-        const sourceAttributeMap =
-            fusionAccount.type === 'identity' ? new Map([['identity', [attributeBag.identity]]]) : attributeBag.sources
-        const sourceOrder = fusionAccount.type === 'identity' ? ['identity'] : this.config.sources.map((sc) => sc.name)
+        const sourceAttributeMap = new Map(attributeBag.sources.entries())
+        if (fusionAccount.type === 'identity') {
+            sourceAttributeMap.set('identity', [attributeBag.identity])
+        }
+        const sourceOrder =
+            fusionAccount.type === 'identity'
+                ? [...this.config.sources.map((sc) => sc.name), 'identity']
+                : this.config.sources.map((sc) => sc.name)
 
         // If refresh is needed, process source attributes in established order
         if (needsRefresh && sourceAttributeMap.size > 0) {
-            const schemaAttributes = this.schema.getSchemaAttributes()
+            const schemaAttributes = this.schemas.listSchemaAttributeNames()
             // Process each schema attribute
             for (const attribute of schemaAttributes) {
-                const name = attribute.name!
+                // Check if there's an attribute definition with overwrite: true
+                const definition = this._attributeDefinitionConfig.find((def) => def.name === attribute)
+                // If overwrite is true, skip mapping from source accounts - generated value will overwrite it
+                if (definition?.overwrite) {
+                    continue
+                }
 
                 // Build processing configuration (merges schema with attributeMaps)
-                const processingConfig = this.attributeMappingConfig.get(name)!
+                const processingConfig = this.attributeMappingConfig.get(attribute)!
 
                 // Process the attribute based on its configuration
                 const processedValue = processAttributeMapping(processingConfig, sourceAttributeMap, sourceOrder)
 
                 // Set the processed value if found
                 if (processedValue !== undefined) {
-                    attributes[name] = processedValue
+                    attributes[attribute] = processedValue
                 }
-            }
-
-            // Build sources string
-            const sourceNames = Array.from(attributeBag.sources.keys())
-            if (sourceNames.length > 0) {
-                attributes.sources = sourceNames.map((x) => `[${x}]`).join(' ')
             }
         }
 
@@ -662,5 +817,23 @@ export class AttributeService {
                 })
             }
         }
+    }
+
+    public getCompoundKey(fusionAccount: FusionAccount): CompoundKeyType {
+        const { fusionDisplayAttribute } = this.schemas
+
+        const uniqueId = fusionAccount.attributes[compoundKeyUniqueIdAttribute] as string
+        assert(uniqueId, `Unique ID is required for compound key`)
+        const lookupId = (fusionAccount.attributes[fusionDisplayAttribute] as string) ?? uniqueId
+
+        return CompoundKey(lookupId, uniqueId)
+    }
+
+    public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType {
+        const { fusionIdentityAttribute } = this.schemas
+        const uniqueId = fusionAccount.nativeIdentity ?? (fusionAccount.attributes[fusionIdentityAttribute] as string)
+        assert(uniqueId, `Unique ID is required for simple key`)
+
+        return SimpleKey(uniqueId)
     }
 }

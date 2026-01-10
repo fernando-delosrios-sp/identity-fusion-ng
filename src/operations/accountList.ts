@@ -10,11 +10,17 @@ export const accountList = async (
     const { log, fusion, forms, identities, schemas, sources, attributes } = serviceRegistry
 
     try {
-        attributes.setStateWrapper(input.state)
         await sources.fetchAllSources()
+        if (fusion.isReset()) {
+            await fusion.disableReset()
+            return
+        }
+
         await schemas.setFusionAccountSchema(input.schema)
         await sources.aggregateManagedSources()
-        fusion.checkAttributeDefinitions()
+        // attributes.setStateWrapper(input.state)
+        await attributes.initializeCounters()
+        // attributes.checkNativeIdentityDefinition()
 
         const fetchPromises = [
             sources.fetchFusionAccounts(),
@@ -32,9 +38,11 @@ export const accountList = async (
 
         await fusion.processIdentityFusionDecisions()
         await fusion.processManagedAccounts()
-        ;(await fusion.listISCAccounts()).forEach((x) => res.send(x))
+        const accounts = await fusion.listISCAccounts()
+        accounts.forEach((x) => res.send(x))
 
         await forms.cleanUpForms()
+        await attributes.saveState()
 
         log.info('Account listing completed')
     } catch (error) {

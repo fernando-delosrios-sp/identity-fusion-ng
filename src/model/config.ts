@@ -44,6 +44,7 @@ export interface AttributeDefinition {
     normalize: boolean
     spaces: boolean
     refresh: boolean
+    overwrite: boolean
     values?: Set<string>
 }
 
@@ -125,6 +126,11 @@ export type AttributeMappingSettingsMenu = AttributeMappingDefinitionsSection
 // Attribute Definition Settings Section
 export interface AttributeDefinitionSettingsSection {
     attributeDefinitions: AttributeDefinition[]
+    /**
+     * Maximum number of attempts to generate a unique attribute value before giving up.
+     * Prevents infinite loops when generating unique or UUID attributes.
+     */
+    maxAttempts?: number
 }
 
 // Attribute Definition Settings Menu
@@ -198,7 +204,7 @@ export interface AdvancedSettingsMenu extends DeveloperSettingsSection, Advanced
 // ============================================================================
 
 export interface InternalConfig {
-    fusionScoreMap?: Map<string, number>
+    readonly fusionScoreMap?: Map<string, number>
     readonly requestsPerSecondConstant: number
     readonly tokenUrlPath: string
     readonly processingWaitConstant: number
@@ -222,6 +228,7 @@ export interface InternalConfig {
         readonly processAccounts: number
         readonly correlateAccounts: number
     }
+    readonly fusionState?: Record<string, any>
 }
 
 // ============================================================================

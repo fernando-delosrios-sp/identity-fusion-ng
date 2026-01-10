@@ -19,5 +19,7 @@ export const fetchFusionAccount = async (nativeIdentity: string, schema?: Accoun
             await sources.fetchManagedAccount(id)
         }) ?? []
     )
+    // Get the map reference to pass to processFusionAccount
+    const managedAccountsMap = sources.managedAccountsById
     return await fusion.processFusionAccount(account)
 }

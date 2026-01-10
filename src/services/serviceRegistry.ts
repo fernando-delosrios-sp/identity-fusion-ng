@@ -45,7 +45,8 @@ export class ServiceRegistry {
         // Initialize services that depend on others (in dependency order)
         this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)
         this.attributes =
-            context.attributesService ?? new AttributeService(this.config, this.schemas, this.log, this.locks)
+            context.attributesService ??
+            new AttributeService(this.config, this.schemas, this.sources, this.log, this.locks)
 
         // Initialize FusionService last (depends on multiple services)
         this.fusion =

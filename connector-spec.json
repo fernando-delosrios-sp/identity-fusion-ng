@@ -13,17 +13,16 @@
         "std:entitlement:list"
     ],
     "supportsCustomSchemas": true,
+    "supportsStatefulCommands": false,
     "showDebugLoggingOption": true,
     "sourceConfigInitialValues": {
-        "digits": 1,
-        "expression": "#set($initial = $firstname.substring(0, 1))$initial$lastname$counter",
         "fusionFormExpirationDays": 7,
         "fusionAverageScore": 80,
         "provisioningTimeout": 300,
         "identityScopeQuery": "*",
         "correlateOnAggregation": true,
         "attributeMerge": "first",
-        "spConnEnableStatefulCommands": true,
+        "spConnEnableStatefulCommands": false,
         "enableQueue": true,
         "enableRetry": true,
         "maxRetries": 20,
@@ -34,7 +33,17 @@
         "processingWait": 60000,
         "retryDelay": 1000,
         "batchSize": 250,
-        "externalLoggingLevel": "info"
+        "externalLoggingLevel": "info",
+        "maxAttempts": 100,
+        "digits": 1,
+        "counterStart": 1,
+        "case": "same",
+        "expression": "#set($initial = $firstname.substring(0, 1))$initial$lastname",
+        "unique": false,
+        "refresh": false,
+        "overwrite": true,
+        "force": false,
+        "type": "normal"
     },
     "sourceConfig": [
         {
@@ -308,8 +317,16 @@
                 {
                     "type": "section",
                     "sectionTitle": "Attribute Definition Settings",
-                    "sectionHelpMessage": "<strong>Define how account attributes are generated.</strong><br><br>Use <strong>Attribute Definitions</strong> to configure how each attribute is built (name, Apache Velocity expression, case, type, counter start, minimum counter digits, maximum length, normalization, spacing, and refresh behavior). <strong>Apache Velocity expressions</strong> have access to an enhanced context including <strong>Math</strong> (JavaScript Math object for mathematical operations), <strong>Date</strong> (JavaScript Date object for date manipulation), and <strong>Datefns</strong> (date-fns library for advanced date formatting and manipulation). <strong>Maximum length</strong> truncates generated values to the specified length (for unique and counter attributes, the counter is preserved at the end). <strong>Refresh on each aggregation?</strong> is only available for normal attributes and causes the attribute to be recalculated every aggregation run, even if it already has a value on the account. Counter-based and unique attributes always preserve their state across runs. <strong>UUID attributes</strong> generate universally unique identifiers automatically.<br><br>The connector supports disabling and enabling accounts. When an account is enabled, all attributes (including unique attributes) are force refreshed and recalculated, ensuring that unique attribute values are regenerated based on the current state of all accounts.<br><br>Toggle <strong>Support for incremental counters</strong> to enable stateful commands required for counter-based attributes to increment across connector runs.",
+                    "sectionHelpMessage": "<strong>Define how account attributes are generated.</strong><br><br>Use <strong>Attribute Definitions</strong> to configure how each attribute is built (name, Apache Velocity expression, case, type, counter start, minimum counter digits, maximum length, normalization, spacing, and refresh behavior). <strong>Apache Velocity expressions</strong> have access to an enhanced context including <strong>Math</strong> (JavaScript Math object for mathematical operations), <strong>Date</strong> (JavaScript Date object for date manipulation), and <strong>Datefns</strong> (date-fns library for advanced date formatting and manipulation). <strong>Maximum length</strong> truncates generated values to the specified length (for unique and counter attributes, the counter is preserved at the end). <strong>Refresh on each aggregation?</strong> is only available for normal attributes and causes the attribute to be recalculated every aggregation run, even if it already has a value on the account. Counter-based and unique attributes always preserve their state across runs. <strong>UUID attributes</strong> generate universally unique identifiers automatically.<br><br>The connector supports disabling and enabling accounts. When an account is enabled, all attributes (including unique attributes) are force refreshed and recalculated, ensuring that unique attribute values are regenerated based on the current state of all accounts.<br><br>Use <strong>Maximum attempts for unique attribute generation</strong> to set the maximum number of attempts the connector will make to generate a unique value for unique or UUID attributes before giving up. This prevents infinite loops when generating unique attribute values.<br><br>Toggle <strong>Support for incremental counters</strong> to enable stateful commands required for counter-based attributes to increment across connector runs.",
                     "items": [
+                        {
+                            "key": "maxAttempts",
+                            "label": "Maximum attempts for unique attribute generation",
+                            "type": "number",
+                            "required": false,
+                            "min": "1",
+                            "helpKey": "Maximum number of attempts to generate a unique value for unique or UUID attributes before giving up (prevents infinite loops)"
+                        },
                         {
                             "key": "attributeDefinitions",
                             "label": "Attribute Definitions",
@@ -426,6 +443,13 @@
                                             "type": "toggle",
                                             "parentKey": "type",
                                             "parentValue": "normal"
+                                        },
+                                        {
+                                            "key": "overwrite",
+                                            "label": "Overwrite existing value?",
+                                            "type": "toggle",
+                                            "required": true,
+                                            "helpKey": "If enabled, generated values will overwrite values mapped from source accounts. If disabled, mapped values take precedence over generated values."
                                         }
                                     ]
                                 }
@@ -649,8 +673,8 @@
         "identityAttribute": "uuid",
         "attributes": [
             {
-                "name": "uuid",
-                "description": "UUID",
+                "name": "id",
+                "description": "ID",
                 "type": "string",
                 "required": true
             },
@@ -768,9 +792,9 @@
                 "type": "string",
                 "required": true,
                 "initialValue": {
-                    "type": "identityAttribute",
+                    "type": "static",
                     "attributes": {
-                        "name": "uid"
+                        "value": "$identity.getName()"
                     }
                 }
             }
