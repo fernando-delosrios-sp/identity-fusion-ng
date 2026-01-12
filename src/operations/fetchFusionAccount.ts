@@ -1,5 +1,5 @@
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { assert } from './assert'
+import { assert } from '../utils/assert'
 import { FusionAccount } from '../model/account'
 
 export const fetchFusionAccount = async (

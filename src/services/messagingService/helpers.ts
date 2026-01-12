@@ -1,0 +1,169 @@
+import Handlebars from 'handlebars'
+import type { TemplateDelegate as HandlebarsTemplateDelegate } from 'handlebars'
+import { FUSION_REVIEW_TEMPLATE, EDIT_REQUEST_TEMPLATE, FUSION_REPORT_TEMPLATE } from '../../model/messages'
+
+// ============================================================================
+// Handlebars Helpers
+// ============================================================================
+
+/**
+ * Register Handlebars helpers for common operations
+ */
+export const registerHandlebarsHelpers = (): void => {
+    // Format attribute values for display
+    Handlebars.registerHelper('formatAttribute', (value: any) => {
+        if (value === null || value === undefined) {
+            return 'N/A'
+        }
+        if (typeof value === 'object') {
+            return JSON.stringify(value)
+        }
+        return String(value)
+    })
+
+    // Format scores for display
+    Handlebars.registerHelper('formatScores', (scores: any[]) => {
+        if (!scores || scores.length === 0) {
+            return 'N/A'
+        }
+        return scores
+            .map((score) => `${score.attribute}: ${score.score}% (${score.isMatch ? 'Match' : 'No Match'})`)
+            .join(', ')
+    })
+
+    // Check if value exists
+    Handlebars.registerHelper('exists', (value: any) => {
+        return value !== null && value !== undefined && value !== ''
+    })
+
+    // Greater than helper
+    Handlebars.registerHelper('gt', (a: number, b: number) => {
+        return a > b
+    })
+
+    // Greater than or equal helper
+    Handlebars.registerHelper('gte', (a: number, b: number) => {
+        return a >= b
+    })
+
+    // Format date
+    Handlebars.registerHelper('formatDate', (date: string | Date) => {
+        if (!date) {
+            return 'N/A'
+        }
+        const d = typeof date === 'string' ? new Date(date) : date
+        return d.toLocaleDateString()
+    })
+}
+
+// ============================================================================
+// Template Compilation
+// ============================================================================
+
+/**
+ * Compile all email templates
+ */
+export const compileEmailTemplates = (): Map<string, HandlebarsTemplateDelegate> => {
+    const templates = new Map<string, HandlebarsTemplateDelegate>()
+    templates.set('fusion-review', Handlebars.compile(FUSION_REVIEW_TEMPLATE))
+    templates.set('edit-request', Handlebars.compile(EDIT_REQUEST_TEMPLATE))
+    templates.set('fusion-report', Handlebars.compile(FUSION_REPORT_TEMPLATE))
+    return templates
+}
+
+// ============================================================================
+// Template Rendering Types
+// ============================================================================
+
+export type FusionReviewEmailData = {
+    accountName: string
+    accountSource: string
+    accountAttributes: Record<string, any>
+    candidates: Array<{
+        id: string
+        name: string
+        attributes: Record<string, any>
+        scores?: any[]
+    }>
+    formInstanceId?: string
+}
+
+export type EditRequestEmailData = {
+    accountName: string
+    accountSource: string
+    accountAttributes: Record<string, any>
+    formInstanceId?: string
+}
+
+export type FusionReportEmailData = {
+    accounts: Array<{
+        accountName: string
+        accountSource: string
+        accountId?: string
+        accountEmail?: string
+        accountAttributes?: Record<string, any>
+        matches: Array<{
+            identityName: string
+            identityId?: string
+            isMatch: boolean
+            scores?: Array<{
+                attribute: string
+                algorithm?: string
+                score: number
+                fusionScore?: number
+                isMatch: boolean
+                comment?: string
+            }>
+        }>
+    }>
+    totalAccounts: number
+    potentialDuplicates: number
+    reportDate: Date | string
+    accountName?: string
+}
+
+// ============================================================================
+// Template Rendering Functions
+// ============================================================================
+
+/**
+ * Render fusion review email template
+ */
+export const renderFusionReviewEmail = (
+    templates: Map<string, HandlebarsTemplateDelegate>,
+    data: FusionReviewEmailData
+): string => {
+    const template = templates.get('fusion-review')
+    if (!template) {
+        throw new Error('Fusion review template not found')
+    }
+    return template(data)
+}
+
+/**
+ * Render edit request email template
+ */
+export const renderEditRequestEmail = (
+    templates: Map<string, HandlebarsTemplateDelegate>,
+    data: EditRequestEmailData
+): string => {
+    const template = templates.get('edit-request')
+    if (!template) {
+        throw new Error('Edit request template not found')
+    }
+    return template(data)
+}
+
+/**
+ * Render fusion report email template
+ */
+export const renderFusionReport = (
+    templates: Map<string, HandlebarsTemplateDelegate>,
+    data: FusionReportEmailData
+): string => {
+    const template = templates.get('fusion-report')
+    if (!template) {
+        throw new Error('Fusion report template not found')
+    }
+    return template(data)
+}

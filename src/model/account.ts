@@ -3,7 +3,7 @@ import { getDateFromISOString } from '../utils/date'
 import { FusionDecision } from './form'
 import { FusionConfig, SourceConfig } from './config'
 import { Attributes } from '@sailpoint/connector-sdk'
-import { compoundKeyUniqueIdAttribute } from '../services/attributeService'
+import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE } from '../services/attributeService'
 import { FusionMatch } from '../services/scoringService'
 
 type AttributeBag = {
@@ -124,7 +124,7 @@ export class FusionAccount {
         fusionAccount.history = account.attributes?.history ?? []
         fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
         fusionAccount._attributeBag.previous = account.attributes ?? {}
-        fusionAccount._attributeBag.previous[compoundKeyUniqueIdAttribute] = account.uuid!
+        fusionAccount._attributeBag.previous[COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE] = account.uuid!
         fusionAccount._attributeBag.current = { ...(account.attributes ?? {}) }
         fusionAccount._identityId = account.identityId ?? ''
         fusionAccount.sourceName = config.cloudDisplayName ?? ''

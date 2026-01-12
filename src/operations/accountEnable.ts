@@ -1,6 +1,6 @@
 import { Response, StdAccountEnableInput, StdAccountEnableOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { fetchFusionAccount } from '../utils/account'
+import { fetchFusionAccount } from './fetchFusionAccount'
 import { assert } from '../utils/assert'
 
 export const accountEnable = async (

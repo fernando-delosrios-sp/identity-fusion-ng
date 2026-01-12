@@ -5,15 +5,25 @@ import {
     TestWorkflowRequestV2025,
     WorkflowsV2025ApiTestWorkflowRequest,
 } from 'sailpoint-api-client'
-import Handlebars from 'handlebars'
-import { FusionConfig } from '../model/config'
-import { ClientService } from './clientService'
-import { LogService } from './logService'
-import { EmailWorkflow } from '../model/emailWorkflow'
-import { softAssert } from '../utils/assert'
-import { IdentityService } from './identityService'
-import type { FusionAccount } from '../model/account'
-import { FUSION_REVIEW_TEMPLATE, EDIT_REQUEST_TEMPLATE, FUSION_REPORT_TEMPLATE } from '../model/messages'
+import type { TemplateDelegate as HandlebarsTemplateDelegate } from 'handlebars'
+import { FusionConfig } from '../../model/config'
+import { ClientService } from '../clientService'
+import { LogService } from '../logService'
+import { EmailWorkflow } from '../../model/emailWorkflow'
+import { softAssert } from '../../utils/assert'
+import { IdentityService } from '../identityService'
+import type { FusionAccount } from '../../model/account'
+import { FusionReport } from '../fusionService/types'
+import {
+    registerHandlebarsHelpers,
+    compileEmailTemplates,
+    renderFusionReviewEmail,
+    renderEditRequestEmail,
+    renderFusionReport,
+    type FusionReviewEmailData,
+    type EditRequestEmailData,
+    type FusionReportEmailData,
+} from './helpers'
 
 // ============================================================================
 // MessagingService Class
@@ -43,8 +53,8 @@ export class MessagingService {
         this.workflowName = config.workflowName
         this.cloudDisplayName = config.cloudDisplayName
         this.managementWorkgroup = config.managementWorkgroup
-        this.registerHelpers()
-        this.compileTemplates()
+        registerHandlebarsHelpers()
+        this._templates = compileEmailTemplates()
     }
 
     // ------------------------------------------------------------------------
@@ -115,7 +125,7 @@ export class MessagingService {
         const candidates = (formInput?.candidates as any[]) || []
 
         const subject = `Identity Fusion Review Required: ${accountName}`
-        const body = this.renderFusionReviewEmail({
+        const emailData: FusionReviewEmailData = {
             accountName,
             accountSource: account?.sourceName || 'Unknown',
             accountAttributes: account?.attributes || {},
@@ -126,7 +136,8 @@ export class MessagingService {
                 scores: candidate.scores,
             })),
             formInstanceId: formInstance.id,
-        })
+        }
+        const body = renderFusionReviewEmail(this._templates, emailData)
 
         await this.sendEmail(recipientEmails, subject, body)
         this.log.info(`Sent fusion email to ${recipientEmails.length} recipient(s) for form ${formInstance.id}`)
@@ -153,12 +164,13 @@ export class MessagingService {
         const accountName = account?.displayName || account?.value || 'Unknown Account'
 
         const subject = `Identity Fusion Account Edit Required: ${accountName}`
-        const body = this.renderEditRequestEmail({
+        const emailData: EditRequestEmailData = {
             accountName,
             accountSource: account?.sourceName || 'Unknown',
             accountAttributes: account?.attributes || {},
             formInstanceId: formInstance.id,
-        })
+        }
+        const body = renderEditRequestEmail(this._templates, emailData)
 
         await this.sendEmail(recipientEmails, subject, body)
         this.log.info(`Sent edit email to ${recipientEmails.length} recipient(s) for form ${formInstance.id}`)
@@ -167,34 +179,7 @@ export class MessagingService {
     /**
      * Send report email with potential duplicate accounts
      */
-    public async sendReport(
-        report: {
-            accounts: Array<{
-                accountName: string
-                accountSource: string
-                accountId?: string
-                accountEmail?: string
-                accountAttributes?: Record<string, any>
-                matches: Array<{
-                    identityName: string
-                    identityId?: string
-                    isMatch: boolean
-                    scores?: Array<{
-                        attribute: string
-                        algorithm?: string
-                        score: number
-                        fusionScore?: number
-                        isMatch: boolean
-                        comment?: string
-                    }>
-                }>
-            }>
-            totalAccounts?: number
-            potentialDuplicates?: number
-            reportDate?: Date | string
-        },
-        fusionAccount?: FusionAccount
-    ): Promise<void> {
+    public async sendReport(report: FusionReport, fusionAccount?: FusionAccount): Promise<void> {
         // Get recipient email from fusion account if provided
         const recipientEmails: string[] = []
 
@@ -214,14 +199,15 @@ export class MessagingService {
         }
 
         const subject = `Identity Fusion Report - ${report.potentialDuplicates || 0} Potential Duplicate(s) Found`
-        const body = this.renderFusionReport({
-            accounts: report.accounts,
+        const emailData: FusionReportEmailData = {
+            ...report,
             totalAccounts: report.totalAccounts || report.accounts.length,
             potentialDuplicates:
                 report.potentialDuplicates || report.accounts.filter((a) => a.matches.length > 0).length,
             reportDate: report.reportDate || new Date(),
             accountName: fusionAccount?.name || fusionAccount?.displayName,
-        })
+        }
+        const body = renderFusionReport(this._templates, emailData)
 
         await this.sendEmail(recipientEmails, subject, body)
         this.log.info(`Sent fusion report email to ${recipientEmails.length} recipient(s)`)
@@ -230,139 +216,6 @@ export class MessagingService {
     // ------------------------------------------------------------------------
     // Private Helper Methods
     // ------------------------------------------------------------------------
-
-    /**
-     * Register Handlebars helpers for common operations
-     */
-    private registerHelpers(): void {
-        // Format attribute values for display
-        Handlebars.registerHelper('formatAttribute', (value: any) => {
-            if (value === null || value === undefined) {
-                return 'N/A'
-            }
-            if (typeof value === 'object') {
-                return JSON.stringify(value)
-            }
-            return String(value)
-        })
-
-        // Format scores for display
-        Handlebars.registerHelper('formatScores', (scores: any[]) => {
-            if (!scores || scores.length === 0) {
-                return 'N/A'
-            }
-            return scores
-                .map((score) => `${score.attribute}: ${score.score}% (${score.isMatch ? 'Match' : 'No Match'})`)
-                .join(', ')
-        })
-
-        // Check if value exists
-        Handlebars.registerHelper('exists', (value: any) => {
-            return value !== null && value !== undefined && value !== ''
-        })
-
-        // Greater than helper
-        Handlebars.registerHelper('gt', (a: number, b: number) => {
-            return a > b
-        })
-
-        // Greater than or equal helper
-        Handlebars.registerHelper('gte', (a: number, b: number) => {
-            return a >= b
-        })
-
-        // Format date
-        Handlebars.registerHelper('formatDate', (date: string | Date) => {
-            if (!date) {
-                return 'N/A'
-            }
-            const d = typeof date === 'string' ? new Date(date) : date
-            return d.toLocaleDateString()
-        })
-    }
-
-    /**
-     * Compile all email templates
-     */
-    private compileTemplates(): void {
-        this._templates.set('fusion-review', Handlebars.compile(FUSION_REVIEW_TEMPLATE))
-        this._templates.set('edit-request', Handlebars.compile(EDIT_REQUEST_TEMPLATE))
-        this._templates.set('fusion-report', Handlebars.compile(FUSION_REPORT_TEMPLATE))
-    }
-
-    /**
-     * Render fusion review email template
-     */
-    private renderFusionReviewEmail(data: {
-        accountName: string
-        accountSource: string
-        accountAttributes: Record<string, any>
-        candidates: Array<{
-            id: string
-            name: string
-            attributes: Record<string, any>
-            scores?: any[]
-        }>
-        formInstanceId?: string
-    }): string {
-        const template = this._templates.get('fusion-review')
-        if (!template) {
-            throw new Error('Fusion review template not found')
-        }
-        return template(data)
-    }
-
-    /**
-     * Render edit request email template
-     */
-    private renderEditRequestEmail(data: {
-        accountName: string
-        accountSource: string
-        accountAttributes: Record<string, any>
-        formInstanceId?: string
-    }): string {
-        const template = this._templates.get('edit-request')
-        if (!template) {
-            throw new Error('Edit request template not found')
-        }
-        return template(data)
-    }
-
-    /**
-     * Render fusion report email template
-     */
-    private renderFusionReport(data: {
-        accounts: Array<{
-            accountName: string
-            accountSource: string
-            accountId?: string
-            accountEmail?: string
-            accountAttributes?: Record<string, any>
-            matches: Array<{
-                identityName: string
-                identityId?: string
-                isMatch: boolean
-                scores?: Array<{
-                    attribute: string
-                    algorithm?: string
-                    score: number
-                    fusionScore?: number
-                    isMatch: boolean
-                    comment?: string
-                }>
-            }>
-        }>
-        totalAccounts: number
-        potentialDuplicates: number
-        reportDate: Date | string
-        accountName?: string
-    }): string {
-        const template = this._templates.get('fusion-report')
-        if (!template) {
-            throw new Error('Fusion report template not found')
-        }
-        return template(data)
-    }
 
     /**
      * Get the workflow, ensuring it's prepared first

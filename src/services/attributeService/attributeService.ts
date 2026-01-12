@@ -1,316 +1,26 @@
-import { FusionConfig, AttributeMap, AttributeDefinition, SourceConfig } from '../model/config'
-import { LogService } from './logService'
-import { FusionAccount } from '../model/account'
-import { SchemaService } from './schemaService'
+import { FusionConfig, AttributeMap, AttributeDefinition, SourceConfig } from '../../model/config'
+import { LogService } from '../logService'
+import { FusionAccount } from '../../model/account'
+import { SchemaService } from '../schemaService'
 import { Attributes, CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType } from '@sailpoint/connector-sdk'
-import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from '../utils/formatting'
-import { LockService } from './lockService'
+import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from '../../utils/formatting'
+import { LockService } from '../lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { v4 as uuidv4 } from 'uuid'
-import { assert } from '../utils/assert'
+import { assert } from '../../utils/assert'
 import { SourcesApiUpdateSourceRequest } from 'sailpoint-api-client'
-import { SourceService } from './sourceService'
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const uniqueAttributeTypes = ['unique', 'uuid', 'counter']
-export const compoundKeyUniqueIdAttribute = 'CompoundKey.uniqueId'
-const fusionStateConfigPath = '/connectorAttributes/fusionState'
-
-// ============================================================================
-// Type Definitions
-// ============================================================================
-
-type AttributeMappingConfig = {
-    attributeName: string
-    sourceAttributes: string[] // Attributes to look for in source accounts
-    attributeMerge: 'first' | 'list' | 'concatenate' | 'source'
-    source?: string // Specific source to use (for 'source' merge strategy)
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-const isUniqueAttribute = (definition: AttributeDefinition): boolean => {
-    return definition.type !== undefined && uniqueAttributeTypes.includes(definition.type)
-}
-
-/**
- * Split attribute value that may contain bracketed values like [value1] [value2]
- */
-const attrSplit = (text: string): string[] => {
-    const regex = /\[([^ ].+)\]/g
-    const set = new Set<string>()
-
-    let match = regex.exec(text)
-    while (match) {
-        set.add(match.pop() as string)
-        match = regex.exec(text)
-    }
-
-    return set.size === 0 ? [text] : [...set]
-}
-
-/**
- * Concatenate array of strings into bracketed format: [value1] [value2]
- */
-export const attrConcat = (list: string[]): string => {
-    const set = new Set(list)
-    return [...set]
-        .sort()
-        .map((x) => `[${x}]`)
-        .join(' ')
-}
-
-/**
- * Process a single attribute from source accounts based on processing configuration
- */
-const processAttributeMapping = (
-    config: AttributeMappingConfig,
-    sourceAttributeMap: Map<string, Attributes[]>,
-    sourceOrder: string[]
-): any => {
-    const { sourceAttributes, attributeMerge, source: specifiedSource } = config
-    const multiValue: string[] = []
-
-    // Process sources in established order
-    for (const sourceName of sourceOrder) {
-        const accounts = sourceAttributeMap.get(sourceName)
-        if (!accounts || accounts.length === 0) {
-            continue
-        }
-
-        // For 'source' merge strategy, only process the specified source
-        if (attributeMerge === 'source' && specifiedSource && sourceName !== specifiedSource) {
-            continue
-        }
-
-        // Process each Attributes object in the array for this source
-        for (const account of accounts) {
-            // Look for values in source attributes (in order of sourceAttributes array)
-            const values: any[] = []
-            for (const sourceAttr of sourceAttributes) {
-                const value = account[sourceAttr]
-                if (value !== undefined && value !== null && value !== '') {
-                    values.push(value)
-                    // For 'first' and 'source' strategies, stop after first match
-                    if (['first', 'source'].includes(attributeMerge)) {
-                        break
-                    }
-                }
-            }
-
-            if (values.length > 0) {
-                // Split bracketed values
-                const splitValues = values.map((x) => (typeof x === 'string' ? attrSplit(x) : [x])).flat()
-
-                // Handle different merge strategies
-                switch (attributeMerge) {
-                    case 'first':
-                        // Return first value from first source that has it
-                        return splitValues[0]
-
-                    case 'source':
-                        if (specifiedSource === sourceName) {
-                            // Return value from specified source
-                            return splitValues[0]
-                        }
-                        break
-
-                    case 'list':
-                        // Collect values for later aggregation
-                        multiValue.push(...splitValues)
-                        break
-                    case 'concatenate':
-                        // Collect values for later aggregation
-                        multiValue.push(...splitValues)
-                        break
-                }
-            }
-        }
-    }
-
-    // Apply multi-value merge strategies
-    if (multiValue.length > 0) {
-        const uniqueSorted = [...new Set(multiValue)].sort()
-        if (attributeMerge === 'list') {
-            return uniqueSorted
-        } else if (attributeMerge === 'concatenate') {
-            return attrConcat(uniqueSorted)
-        }
-    }
-
-    return undefined
-}
-
-/**
- * Build processing configuration for an attribute by merging schema with attributeMaps
- */
-const buildAttributeMappingConfig = (
-    attributeName: string,
-    attributeMaps: AttributeMap[] | undefined,
-    defaultAttributeMerge: 'first' | 'list' | 'concatenate'
-): AttributeMappingConfig => {
-    // Check if attribute has specific configuration in attributeMaps
-    const attributeMap = attributeMaps?.find((am) => am.newAttribute === attributeName)
-
-    if (attributeMap) {
-        // Use attributeMap configuration
-        return {
-            attributeName,
-            sourceAttributes: attributeMap.existingAttributes || [attributeName],
-            attributeMerge: attributeMap.attributeMerge || defaultAttributeMerge,
-            source: attributeMap.source,
-        }
-    } else {
-        // Use global attributeMerge policy with direct attribute name
-        return {
-            attributeName,
-            sourceAttributes: [attributeName],
-            attributeMerge: defaultAttributeMerge,
-        }
-    }
-}
-
-// ============================================================================
-// StateWrapper Class
-// ============================================================================
-
-/**
- * Wrapper for managing stateful counters across connector runs
- */
-export class StateWrapper {
-    state: Map<string, number> = new Map()
-    private log?: LogService
-    private locks?: LockService
-
-    constructor(state?: any, log?: LogService, locks?: LockService) {
-        this.log = log
-        this.locks = locks
-        if (log) {
-            log.info(`Initializing StateWrapper with state: ${JSON.stringify(state)}`)
-        }
-        try {
-            // Handle undefined, null, or empty state
-            if (state && typeof state === 'object' && Object.keys(state).length > 0) {
-                this.state = new Map(Object.entries(state))
-                if (log) {
-                    log.debug(`Loaded ${this.state.size} counter values from state`)
-                }
-            } else {
-                this.state = new Map()
-                if (log) {
-                    log.debug('Initializing with empty state (no previous counter values)')
-                }
-            }
-        } catch (error) {
-            if (log) {
-                log.error(`Failed to convert state object to Map: ${error}. Initializing with empty Map`)
-            }
-            this.state = new Map()
-        }
-    }
-
-    /**
-     * Set the lock service for thread-safe operations
-     */
-    setLockService(locks: LockService): void {
-        this.locks = locks
-    }
-
-    /**
-     * Get a non-persistent counter function (for unique attributes)
-     */
-    static getCounter(): () => number {
-        let counter = 0
-        return () => {
-            counter++
-            return counter
-        }
-    }
-
-    /**
-     * Get a persistent counter function (for counter-based attributes)
-     * Returns an async function that uses locks for thread safety in parallel processing
-     * Counters must be initialized via initializeCounters() before use
-     */
-    getCounter(key: string): () => Promise<number> {
-        if (this.log) {
-            this.log.debug(`Getting counter for key: ${key}`)
-        }
-        return async () => {
-            const lockKey = `counter:${key}`
-
-            return await this.locks!.withLock(lockKey, async () => {
-                // Ensure counter exists (should have been initialized, but check for safety)
-                if (!this.state.has(key)) {
-                    const error = new Error(`Counter ${key} was not initialized. Call initializeCounters() first.`)
-                    if (this.log) {
-                        this.log.error(error.message)
-                    }
-                    throw error
-                }
-
-                const currentValue = this.state.get(key)!
-                const nextValue = currentValue + 1
-                this.state.set(key, nextValue)
-                // Verify the state was actually updated
-                const verifyValue = this.state.get(key)
-                if (verifyValue !== nextValue) {
-                    throw new Error(
-                        `State update failed! Set ${key} to ${nextValue} but got ${verifyValue} when reading back`
-                    )
-                }
-                if (this.log) {
-                    this.log.debug(
-                        `Persistent counter for key ${key} incremented from ${currentValue} to: ${nextValue} (verified: ${verifyValue})`
-                    )
-                }
-                return nextValue
-            })
-        }
-    }
-
-    /**
-     * Initialize a counter with a start value if it doesn't exist
-     * Sets the counter to (start - 1) so that the first increment returns 'start'
-     * Uses locks for thread safety in parallel processing
-     */
-    async initCounter(key: string, start: number): Promise<void> {
-        const lockKey = `counter:${key}`
-
-        if (this.locks) {
-            await this.locks.withLock(lockKey, async () => {
-                if (!this.state.has(key)) {
-                    // Set to start - 1 so first increment returns 'start'
-                    this.state.set(key, start - 1)
-                    if (this.log) {
-                        this.log.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
-                    }
-                }
-            })
-        } else {
-            // Fallback to non-locked operation (not thread-safe)
-            if (!this.state.has(key)) {
-                // Set to start - 1 so first increment returns 'start'
-                this.state.set(key, start - 1)
-                if (this.log) {
-                    this.log.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
-                }
-            }
-        }
-    }
-
-    /**
-     * Get the state as a plain object for saving
-     */
-    getState(): { [key: string]: number } {
-        return Object.fromEntries(this.state)
-    }
-}
+import { SourceService } from '../sourceService'
+import {
+    COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE,
+    FUSION_STATE_CONFIG_PATH,
+} from './constants'
+import { AttributeMappingConfig } from './types'
+import {
+    isUniqueAttribute,
+    processAttributeMapping,
+    buildAttributeMappingConfig,
+} from './helpers'
+import { StateWrapper } from './stateWrapper'
 
 // ============================================================================
 // AttributeService Class
@@ -372,7 +82,7 @@ export class AttributeService {
             jsonPatchOperation: [
                 {
                     op: 'add',
-                    path: fusionStateConfigPath,
+                    path: FUSION_STATE_CONFIG_PATH,
                     value: stateObject,
                 },
             ],
@@ -607,7 +317,7 @@ export class AttributeService {
     public getCompoundKey(fusionAccount: FusionAccount): CompoundKeyType {
         const { fusionDisplayAttribute } = this.schemas
 
-        const uniqueId = fusionAccount.attributes[compoundKeyUniqueIdAttribute] as string
+        const uniqueId = fusionAccount.attributes[COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE] as string
         assert(uniqueId, `Unique ID is required for compound key`)
         const lookupId = (fusionAccount.attributes[fusionDisplayAttribute] as string) ?? uniqueId
 

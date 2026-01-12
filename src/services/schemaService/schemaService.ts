@@ -1,41 +1,14 @@
-import { AttributeDefinition as ApiAttributeDefinition, Schema } from 'sailpoint-api-client'
 import { AccountSchema, Attributes, SchemaAttribute } from '@sailpoint/connector-sdk'
-import { AttributeMap, FusionConfig, AttributeDefinition } from '../model/config'
-import { LogService } from './logService'
-import { SourceService } from './sourceService'
-import { assert } from '../utils/assert'
-import { fusionAccountSchemaAttributes } from '../data/schema'
+import { AttributeMap, FusionConfig, AttributeDefinition } from '../../model/config'
+import { LogService } from '../logService'
+import { SourceService } from '../sourceService'
+import { assert } from '../../utils/assert'
+import { fusionAccountSchemaAttributes } from '../../data/schema'
+import { isAccountSchema, apiSchemaToAccountSchema } from './helpers'
 
 /**
  * Service for managing account schema, dynamic schema building.
  */
-
-const isAccountSchema = (schema: Schema): boolean => {
-    return schema.nativeObjectType === 'User' || schema.nativeObjectType === 'account' || schema.name === 'account'
-}
-
-const attributeDefinitionToSchemaAttribute = (attributeDefinition: ApiAttributeDefinition): SchemaAttribute => {
-    return {
-        name: attributeDefinition.name ?? '',
-        description: attributeDefinition.description ?? '',
-        type: attributeDefinition.type ? attributeDefinition.type.toLowerCase() : 'string',
-        multi: attributeDefinition.isMulti ?? false,
-        entitlement: attributeDefinition.isEntitlement ?? false,
-    }
-}
-
-const apiSchemaToAccountSchema = (apiSchema: Schema): AccountSchema => {
-    const attributes = (apiSchema.attributes ?? []).map((x) => attributeDefinitionToSchemaAttribute(x))
-    const accountSchema: AccountSchema = {
-        displayAttribute: apiSchema.displayAttribute!,
-        identityAttribute: apiSchema.identityAttribute!,
-        attributes,
-        groupAttribute: '',
-    }
-
-    return accountSchema
-}
-
 export class SchemaService {
     private _fusionAccountSchema?: AccountSchema
     private attributeMap: Map<string, AttributeMap> = new Map()

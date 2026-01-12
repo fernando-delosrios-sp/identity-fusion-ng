@@ -11,22 +11,12 @@ import {
     SourcesApiUpdateSourceRequest,
     Source,
 } from 'sailpoint-api-client'
-import { BaseConfig, FusionConfig, SourceConfig } from '../model/config'
-import { ClientService } from './clientService'
-import { LogService } from './logService'
-import { assert, softAssert } from '../utils/assert'
-import { getDateFromISOString } from '../utils/date'
-
-// ============================================================================
-// Type Definitions
-// ============================================================================
-
-type SourceInfo = {
-    id: string
-    name: string
-    isManaged: boolean
-    config?: SourceConfig // Only present for managed sources
-}
+import { BaseConfig, FusionConfig, SourceConfig } from '../../model/config'
+import { ClientService } from '../clientService'
+import { LogService } from '../logService'
+import { assert, softAssert } from '../../utils/assert'
+import { getDateFromISOString } from '../../utils/date'
+import { SourceInfo } from './types'
 
 // ============================================================================
 // SourceService Class
