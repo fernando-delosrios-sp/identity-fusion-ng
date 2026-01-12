@@ -1,6 +1,6 @@
-import { AttributeDefinition, Schema } from 'sailpoint-api-client'
+import { AttributeDefinition as ApiAttributeDefinition, Schema } from 'sailpoint-api-client'
 import { AccountSchema, Attributes, SchemaAttribute } from '@sailpoint/connector-sdk'
-import { AttributeMap, FusionConfig } from '../model/config'
+import { AttributeMap, FusionConfig, AttributeDefinition } from '../model/config'
 import { LogService } from './logService'
 import { SourceService } from './sourceService'
 import { assert } from '../utils/assert'
@@ -14,7 +14,7 @@ const isAccountSchema = (schema: Schema): boolean => {
     return schema.nativeObjectType === 'User' || schema.nativeObjectType === 'account' || schema.name === 'account'
 }
 
-const attributeDefinitionToSchemaAttribute = (attributeDefinition: AttributeDefinition): SchemaAttribute => {
+const attributeDefinitionToSchemaAttribute = (attributeDefinition: ApiAttributeDefinition): SchemaAttribute => {
     return {
         name: attributeDefinition.name ?? '',
         description: attributeDefinition.description ?? '',
@@ -40,12 +40,18 @@ export class SchemaService {
     private _fusionAccountSchema?: AccountSchema
     private attributeMap: Map<string, AttributeMap> = new Map()
     private _fusionSchemaAttributeNames: string[] = []
+    private readonly attributeMaps?: AttributeMap[]
+    private readonly attributeMerge: 'first' | 'list' | 'concatenate'
+    private readonly attributeDefinitions?: AttributeDefinition[] // Local type from config
 
     constructor(
-        private config: FusionConfig,
+        config: FusionConfig,
         private log: LogService,
         private sources: SourceService
     ) {
+        this.attributeMaps = config.attributeMaps
+        this.attributeMerge = config.attributeMerge
+        this.attributeDefinitions = config.attributeDefinitions
         this.attributeMap = new Map(config.attributeMaps?.map((x) => [x.newAttribute, x]) ?? [])
     }
 
@@ -109,7 +115,7 @@ export class SchemaService {
                     attribute.multi = false
                 }
             } else {
-                if (this.config.attributeMerge === 'list') {
+                if (this.attributeMerge === 'list') {
                     attribute.multi = true
                 } else {
                     attribute.multi = false
@@ -148,15 +154,17 @@ export class SchemaService {
     }
 
     private getAttributeDefinitionAttributes(): SchemaAttribute[] {
-        const attributes: SchemaAttribute[] = this.config.attributeDefinitions!.map((x) => {
-            return {
-                name: x.name,
-                description: `Created from expression: ${x.expression}`,
-                type: 'string',
-                multi: false,
-                entitlement: false,
-            }
-        })
+        const attributes: SchemaAttribute[] = this.attributeDefinitions!
+            .filter((x) => x.name) // Filter out any definitions without names
+            .map((x) => {
+                return {
+                    name: x.name!,
+                    description: x.expression ? `Created from expression: ${x.expression}` : '',
+                    type: 'string',
+                    multi: false,
+                    entitlement: false,
+                }
+            })
 
         return attributes
     }

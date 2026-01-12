@@ -1,149 +1,205 @@
-import { FusionConfig } from '../model/config'
+import { FusionAccount } from '../model/account'
+import { MatchingConfig, FusionConfig } from '../model/config'
 import { LogService } from './logService'
-import { lig3 } from '../utils/lig'
+import * as stringComparison from 'string-comparison'
+import { doubleMetaphone } from 'double-metaphone'
+import * as nameMatch from 'name-match'
 
+const { jaroWinkler, diceCoefficient } = stringComparison.default
+
+type ScoreReport = MatchingConfig & {
+    score: number
+    isMatch: boolean
+    comment?: string
+}
+
+export type FusionMatch = {
+    fusionIdentity: FusionAccount
+    scores: ScoreReport[]
+}
 /**
  * Service for calculating and managing similarity scores for identity matching.
  * Handles score calculation, threshold checking, and score formatting.
  */
 export class ScoringService {
-    analyzeFusionAccount(_fusionAccount: unknown, _fusionIdentities: unknown[]): void {}
-    private mergingMapByIdentity: Map<string, any> = new Map()
-
+    private readonly matchingConfigs: MatchingConfig[]
+    private readonly fusionUseAverageScore: boolean
+    private readonly fusionAverageScore: number
+    private reportMode: boolean = false
     constructor(
-        private config: FusionConfig,
+        config: FusionConfig,
         private log: LogService
     ) {
-        this.buildMergingMapLookup()
+        this.matchingConfigs = config.matchingConfigs ?? []
+        this.fusionUseAverageScore = config.fusionUseAverageScore ?? false
+        this.fusionAverageScore = config.fusionAverageScore ?? 0
     }
 
-    /**
-     * Build merging map lookup for faster access
-     */
-    private buildMergingMapLookup(): void {
-        this.mergingMapByIdentity.clear()
-
-        // Build lookup map for merging_map by identity attribute
-        // Note: merging_map is now attributeMaps in the new config structure
-        const mergingMap = this.config.attributeMaps || []
-
-        for (const mergingConfig of mergingMap) {
-            // Map new structure to old structure
-            const identityAttr = mergingConfig.newAttribute
-            this.mergingMapByIdentity.set(identityAttr, {
-                identity: identityAttr,
-                account: mergingConfig.existingAttributes || [],
-                attributeMerge: mergingConfig.attributeMerge || this.config.attributeMerge,
-                source: mergingConfig.source,
-                merging_score: this.config.fusionScoreMap?.get(identityAttr),
-            })
-        }
+    public enableReportMode(): void {
+        this.reportMode = true
     }
 
-    /**
-     * Get merging score threshold for an attribute
-     * @param attribute - Optional attribute name. If not provided, returns average score threshold.
-     * @returns The threshold score for the attribute
-     */
-    public getMergingScore(attribute?: string): number {
-        if (this.config.fusionUseAverageScore) {
-            return this.config.fusionAverageScore ?? 0
-        }
-
-        if (attribute) {
-            const attributeConfig = this.mergingMapByIdentity.get(attribute)
-            return attributeConfig?.merging_score ?? 0
-        }
-
-        return this.config.fusionAverageScore ?? 0
-    }
-
-    /**
-     * Calculate similarity score between two string values using LIG3 algorithm
-     * @param value1 - First value to compare
-     * @param value2 - Second value to compare
-     * @returns Similarity score between 0 and 100 (percentage)
-     */
-    public calculateSimilarityScore(value1: string, value2: string): number {
-        if (!value1 || !value2) {
-            return 0
-        }
-
-        const similarity = lig3(value1.trim(), value2.trim())
-        return similarity * 100
-    }
-
-    /**
-     * Check if a score meets the threshold for a given attribute
-     * @param score - The calculated similarity score
-     * @param attribute - Optional attribute name for attribute-specific thresholds
-     * @returns True if score meets or exceeds the threshold
-     */
-    public meetsThreshold(score: number, attribute?: string): boolean {
-        const threshold = this.getMergingScore(attribute)
-        return score >= threshold
-    }
-
-    /**
-     * Calculate average score from a map of attribute scores
-     * @param scores - Map of attribute names to scores
-     * @param totalAttributes - Total number of attributes being compared
-     * @returns Average score across all attributes
-     */
-    public calculateAverageScore(scores: Map<string, number>, totalAttributes: number): number {
-        if (scores.size === 0 || totalAttributes === 0) {
-            return 0
-        }
-
-        const sum = [...scores.values()].reduce((prev, curr) => prev + curr, 0)
-        return sum / totalAttributes
-    }
-
-    /**
-     * Format a score map as a human-readable string
-     * @param score - Map of attribute names to score strings
-     * @returns Formatted string like "attribute1 (85), attribute2 (90)"
-     */
-    public stringifyScore(score: Map<string, string>): string {
-        const keys = Array.from(score.keys())
-        return keys.map((x) => `${x} (${score.get(x)})`).join(', ')
-    }
-
-    /**
-     * Format a score map as a compact string for logging
-     * @param score - Map of attribute names to score strings
-     * @returns Formatted string like "attribute1:85, attribute2:90"
-     */
-    public formatScoreCompact(score: Map<string, string>): string {
-        const entries: string[] = []
-        score.forEach((v, k) => {
-            entries.push(`${k}:${v}`)
+    public scoreFusionAccount(fusionAccount: FusionAccount, fusionIdentities: FusionAccount[]): void {
+        fusionIdentities.forEach((fusionIdentity) => {
+            this.compareFusionAccounts(fusionAccount, fusionIdentity)
         })
-        return entries.join(', ')
     }
 
-    /**
-     * Check if all scores in a map are perfect (100)
-     * @param score - Map of attribute names to score strings
-     * @returns True if all scores are '100'
-     */
-    public isPerfectMatch(score: Map<string, string>): boolean {
-        return [...score.values()].every((x) => x === '100')
+    private compareFusionAccounts(
+        fusionAccount: FusionAccount,
+        fusionIdentity: FusionAccount
+    ): FusionMatch | undefined {
+        const fullRun = this.reportMode || this.fusionUseAverageScore
+        const scores: ScoreReport[] = []
+        let isMatch = false
+
+        for (const matching of this.matchingConfigs) {
+            const accountAttribute = fusionAccount.attributes[matching.attribute]
+            const identityAttribute = fusionIdentity.attributes[matching.attribute]
+            if (accountAttribute && identityAttribute) {
+                const scoreReport: ScoreReport = this.scoreAttribute(
+                    accountAttribute.toString(),
+                    identityAttribute.toString(),
+                    matching
+                )
+                if (!scoreReport.isMatch && matching.mandatory && !fullRun) {
+                    return
+                }
+                isMatch = isMatch || scoreReport.isMatch
+                scores.push(scoreReport)
+            }
+        }
+
+        if (this.fusionUseAverageScore) {
+            const score = scores.reduce((acc, score) => acc + score.score, 0) / scores.length
+            const match = score >= this.fusionAverageScore
+
+            const scoreReport: ScoreReport = {
+                attribute: 'Average Score',
+                algorithm: 'average',
+                fusionScore: this.fusionAverageScore,
+                mandatory: true,
+                score,
+                isMatch: match,
+                comment: match ? 'Average score is above threshold' : 'Average score is below threshold',
+            }
+            scores.push(scoreReport)
+            isMatch = match
+        }
+
+        const fusionMatch: FusionMatch = {
+            fusionIdentity,
+            scores,
+        }
+        if (isMatch) {
+            fusionAccount.addFusionMatch(fusionMatch)
+        }
     }
 
-    /**
-     * Check if average score mode is enabled
-     * @returns True if using average score mode
-     */
-    public isAverageScoreMode(): boolean {
-        return this.config.fusionUseAverageScore ?? false
+    private scoreAttribute(
+        accountAttribute: string,
+        identityAttribute: string,
+        matchingConfig: MatchingConfig
+    ): ScoreReport {
+        switch (matchingConfig.algorithm) {
+            case 'name-matcher':
+                return this.scoreNameMatcher(accountAttribute, identityAttribute, matchingConfig)
+            case 'jaro-winkler':
+                return this.scoreJaroWinkler(accountAttribute, identityAttribute, matchingConfig)
+            case 'dice':
+                return this.scoreDice(accountAttribute, identityAttribute, matchingConfig)
+            case 'double-metaphone':
+                return this.scoreDoubleMetaphone(accountAttribute, identityAttribute, matchingConfig)
+            case 'custom':
+                this.log.crash('Custom algorithm not implemented')
+        }
+        return { ...matchingConfig, score: 0, isMatch: false }
     }
 
-    /**
-     * Get the configured average score threshold
-     * @returns The average score threshold
-     */
-    public getAverageScoreThreshold(): number {
-        return this.config.fusionAverageScore ?? 0
+    private scoreDice(accountAttribute: string, identityAttribute: string, matching: MatchingConfig): ScoreReport {
+        const similarity = diceCoefficient.similarity(accountAttribute, identityAttribute)
+        const score = Math.round(similarity * 100)
+
+        const threshold = matching.fusionScore ?? 0
+        const isMatch = score >= threshold
+
+        return {
+            ...matching,
+            score,
+            isMatch,
+        }
+    }
+
+    private scoreDoubleMetaphone(
+        accountAttribute: string,
+        identityAttribute: string,
+        matching: MatchingConfig
+    ): ScoreReport {
+        const accountCodes = doubleMetaphone(accountAttribute)
+        const identityCodes = doubleMetaphone(identityAttribute)
+
+        let score = 0
+        let comment = ''
+
+        if (accountCodes[0] === identityCodes[0] && accountCodes[0]) {
+            score = 100
+            comment = 'Primary codes match'
+        } else if (accountCodes[1] === identityCodes[1] && accountCodes[1]) {
+            score = 80
+            comment = 'Secondary codes match'
+        } else if (accountCodes[0] === identityCodes[1] || accountCodes[1] === identityCodes[0]) {
+            score = 70
+            comment = 'Cross-match between primary and secondary codes'
+        } else {
+            score = 0
+            comment = 'No phonetic match'
+        }
+
+        const threshold = matching.fusionScore ?? 0
+        const isMatch = score >= threshold
+
+        return {
+            ...matching,
+            score,
+            isMatch,
+            comment,
+        }
+    }
+
+    private scoreJaroWinkler(
+        accountAttribute: string,
+        identityAttribute: string,
+        matching: MatchingConfig
+    ): ScoreReport {
+        const similarity = jaroWinkler.similarity(accountAttribute, identityAttribute)
+        const score = Math.round(similarity * 100)
+
+        const threshold = matching.fusionScore ?? 0
+        const isMatch = score >= threshold
+
+        return {
+            ...matching,
+            score,
+            isMatch,
+        }
+    }
+
+    private scoreNameMatcher(
+        accountAttribute: string,
+        identityAttribute: string,
+        matching: MatchingConfig
+    ): ScoreReport {
+        const similarity = nameMatch.match(accountAttribute, identityAttribute)
+        // name-match returns a normalized score (0-1), convert to 0-100
+        const score = Math.round(similarity * 100)
+
+        const threshold = matching.fusionScore ?? 0
+        const isMatch = score >= threshold
+
+        return {
+            ...matching,
+            score,
+            isMatch,
+        }
     }
 }

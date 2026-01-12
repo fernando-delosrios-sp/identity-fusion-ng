@@ -1,6 +1,6 @@
 import { Account, IdentityDocument, SourcesApiUpdateSourceRequest } from 'sailpoint-api-client'
 import { StdAccountListOutput } from '@sailpoint/connector-sdk'
-import { FusionConfig } from '../model/config'
+import { FusionConfig, SourceConfig } from '../model/config'
 import { LogService } from './logService'
 import { FormService } from './formService'
 import { IdentityService } from './identityService'
@@ -12,38 +12,146 @@ import { FusionDecision } from '../model/form'
 import { ScoringService } from './scoringService'
 import { SchemaService } from './schemaService'
 
+// ============================================================================
+// FusionService Class
+// ============================================================================
+
 /**
  * Service for identity merging/deduplication logic.
  * Pure in-memory operations - no ClientService dependency.
  * All data structures are passed in as parameters.
  */
 export class FusionService {
+    generateReport(): {
+        accounts: Array<{
+            accountName: string
+            accountSource: string
+            accountId?: string
+            accountEmail?: string
+            accountAttributes?: Record<string, any>
+            matches: Array<{
+                identityName: string
+                identityId?: string
+                isMatch: boolean
+                scores?: Array<{
+                    attribute: string
+                    algorithm?: string
+                    score: number
+                    fusionScore?: number
+                    isMatch: boolean
+                    comment?: string
+                }>
+            }>
+        }>
+        totalAccounts?: number
+        potentialDuplicates?: number
+        reportDate?: Date | string
+    } {
+        const accounts: Array<{
+            accountName: string
+            accountSource: string
+            accountId?: string
+            accountEmail?: string
+            accountAttributes?: Record<string, any>
+            matches: Array<{
+                identityName: string
+                identityId?: string
+                isMatch: boolean
+                scores?: Array<{
+                    attribute: string
+                    algorithm?: string
+                    score: number
+                    fusionScore?: number
+                    isMatch: boolean
+                    comment?: string
+                }>
+            }>
+        }> = []
+
+        // Process all fusion accounts that have matches
+        for (const fusionAccount of this._fusionAccounts) {
+            if (fusionAccount.fusionMatches && fusionAccount.fusionMatches.length > 0) {
+                const matches = fusionAccount.fusionMatches.map((match) => ({
+                    identityName: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
+                    identityId: match.fusionIdentity.identityId,
+                    isMatch: true,
+                    scores: match.scores.map((score) => ({
+                        attribute: score.attribute,
+                        algorithm: score.algorithm,
+                        score: score.score,
+                        fusionScore: score.fusionScore,
+                        isMatch: score.isMatch,
+                        comment: score.comment,
+                    })),
+                }))
+
+                accounts.push({
+                    accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
+                    accountSource: fusionAccount.sourceName,
+                    accountEmail: fusionAccount.email,
+                    accountAttributes: fusionAccount.attributes,
+                    matches,
+                })
+            }
+        }
+
+        const potentialDuplicates = accounts.filter((a) => a.matches.length > 0).length
+
+        return {
+            accounts,
+            totalAccounts: this._fusionAccounts.length,
+            potentialDuplicates,
+            reportDate: new Date(),
+        }
+    }
     private _fusionIdentityMap: Map<string, FusionAccount> = new Map()
     private _fusionAccounts: FusionAccount[] = []
     private _reviewersBySource: Map<string, Set<FusionAccount>> = new Map()
+    private readonly sourceConfigs: SourceConfig[]
+    private readonly reset: boolean
+    private readonly correlateOnAggregation: boolean
+    private readonly spConnectorInstanceId: string
+
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
 
     constructor(
         private config: FusionConfig,
         private log: LogService,
         private identities: IdentityService,
-        private sources: SourceService,
+        private sourceService: SourceService,
         private forms: FormService,
         private attributes: AttributeService,
         private scoring: ScoringService,
         private schemas: SchemaService
     ) {
+        this.sourceConfigs = config.sources
+        this.reset = config.reset
+        this.correlateOnAggregation = config.correlateOnAggregation
+        this.spConnectorInstanceId = config.spConnectorInstanceId
         // TODO: Use assertion + getter instead
-        this.config.sources.forEach((sourceConfig) => {
+        this.sourceConfigs.forEach((sourceConfig) => {
             this._reviewersBySource.set(sourceConfig.name, new Set())
         })
     }
 
+    // ------------------------------------------------------------------------
+    // Public Reset/Configuration Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Check if reset is enabled
+     */
     public isReset(): boolean {
-        return this.config.reset
+        return this.reset
     }
 
+    /**
+     * Disable the reset flag in the source configuration
+     */
     public async disableReset(): Promise<void> {
-        const fusionSourceId = this.sources.fusionSourceId
+        const fusionSourceId = this.sourceService.fusionSourceId
         const requestParameters: SourcesApiUpdateSourceRequest = {
             id: fusionSourceId,
             jsonPatchOperation: [
@@ -54,20 +162,31 @@ export class FusionService {
                 },
             ],
         }
-        await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
+        await this.sourceService.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
+    // ------------------------------------------------------------------------
+    // Public Fusion Account Processing Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Process all fusion accounts from sources
+     */
     public async processFusionAccounts(): Promise<void> {
-        const { fusionAccounts } = this.sources
+        const fusionAccounts = this.sourceService.fusionAccounts
         await Promise.all(fusionAccounts.map((x: Account) => this.processFusionAccount(x)))
     }
 
+    /**
+     * Process a single fusion account
+     */
     public async processFusionAccount(account: Account): Promise<FusionAccount> {
         assert(
             !this._fusionIdentityMap.has(account.nativeIdentity),
             `Fusion account found for ${account.nativeIdentity}. Should not process Fusion accounts more than once.`
         )
-        const managedAccountsMap = this.sources.managedAccountsById
+        const managedAccountsMap = this.sourceService.managedAccountsById
+        assert(managedAccountsMap, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
 
         const fusionAccount = FusionAccount.fromFusionAccount(this.config, account)
@@ -100,9 +219,9 @@ export class FusionService {
         if (account.uncorrelated) {
             this._fusionAccounts.push(fusionAccount)
         } else {
-            if (this.config.correlateOnAggregation) {
-                // TODO: rearrange
-                await fusionAccount.correlateMissingAccounts(this.identities.correlateAccount.bind(this.identities))
+            if (this.correlateOnAggregation) {
+                const { correlateAccount } = this.identities
+                await fusionAccount.correlateMissingAccounts(correlateAccount.bind(this.identities))
             }
             this._fusionIdentityMap.set(identityId, fusionAccount)
         }
@@ -110,6 +229,13 @@ export class FusionService {
         return fusionAccount
     }
 
+    // ------------------------------------------------------------------------
+    // Public Identity Processing Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Process all identities
+     */
     public async processIdentities(): Promise<void> {
         const { identities } = this.identities
         this.log.debug(`Processing ${identities.length} identities`)
@@ -117,6 +243,9 @@ export class FusionService {
         this.log.debug('Identities processing completed')
     }
 
+    /**
+     * Process a single identity
+     */
     public async processIdentity(identity: IdentityDocument): Promise<void> {
         const { fusionDisplayAttribute } = this.schemas
         const identityId = identity.id
@@ -125,7 +254,9 @@ export class FusionService {
             const fusionAccount = FusionAccount.fromIdentity(this.config, identity)
             fusionAccount.addIdentityLayer(identity)
 
-            fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
+            const managedAccountsMap = this.sourceService.managedAccountsById
+            assert(managedAccountsMap, 'Managed accounts have not been loaded')
+            fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
             this.attributes.mapAttributes(fusionAccount)
             await this.attributes.refreshAttributes(fusionAccount)
@@ -135,6 +266,9 @@ export class FusionService {
         }
     }
 
+    /**
+     * Process all identity fusion decisions
+     */
     public async processIdentityFusionDecisions(): Promise<void> {
         const identityFusionDecisions = this.forms.getIdentityFusionDecisions()
         this.log.debug(`Processing ${identityFusionDecisions.length} identity fusion decision(s)`)
@@ -142,12 +276,16 @@ export class FusionService {
         this.log.debug('Identity fusion decisions processing completed')
     }
 
+    /**
+     * Process a single identity fusion decision
+     */
     public async processIdentityFusionDecision(fusionDecision: FusionDecision): Promise<void> {
         const fusionAccount = FusionAccount.fromFusionDecision(this.config, fusionDecision)
         fusionAccount.addFusionDecisionLayer(fusionDecision)
 
-        const { managedAccountsById } = this.sources
-        fusionAccount.addManagedAccountLayer(managedAccountsById)
+        const managedAccountsMap = this.sourceService.managedAccountsById
+        assert(managedAccountsMap, 'Managed accounts have not been loaded')
+        fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshAttributes(fusionAccount)
@@ -155,43 +293,31 @@ export class FusionService {
         this._fusionAccounts.push(fusionAccount)
     }
 
+    // ------------------------------------------------------------------------
+    // Public Managed Account Processing Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Process all managed accounts
+     */
     public async processManagedAccounts(): Promise<void> {
-        const { managedAccountsById } = this.sources
-        const managedAccounts = Array.from(managedAccountsById.values()) as Account[]
+        const managedAccounts = this.sourceService.managedAccounts
 
         this.log.debug(`Processing ${managedAccounts.length} managed account(s)`)
         await Promise.all(managedAccounts.map((x: Account) => this.processManagedAccount(x)))
         this.log.debug('Managed accounts processing completed')
     }
 
-    public async analyzeManagedAccounts(): Promise<void> {
-        const { managedAccountsById } = this.sources
-        const managedAccounts = Array.from(managedAccountsById.values()) as Account[]
-
-        await Promise.all(managedAccounts.map((x: Account) => this.analyzeManagedAccount(x)))
-    }
-
-    private async preProcessManagedAccount(account: Account): Promise<FusionAccount> {
-        const fusionAccount = FusionAccount.fromManagedAccount(this.config, account)
-        const fusionIdentities = Array.from(this._fusionAccounts.values())
-
-        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
-
-        this.attributes.mapAttributes(fusionAccount)
-        await this.attributes.refreshNonUniqueAttributes(fusionAccount)
-
-        await this.scoring.analyzeFusionAccount(fusionAccount, fusionIdentities)
-
-        return fusionAccount
-    }
-
+    /**
+     * Process a single managed account
+     */
     public async processManagedAccount(account: Account): Promise<void> {
-        const fusionAccount = await this.preProcessManagedAccount(account)
+        const fusionAccount = await this.analyzeManagedAccount(account)
 
-        if (fusionAccount.duplicate) {
-            this.log.debug(`Account ${account.name} is a duplicate, creating fusion form`)
+        if (fusionAccount.isMatch) {
+            this.log.debug(`Account ${account.name} is a potential duplicate, creating fusion form`)
             const reviewers = this._reviewersBySource.get(fusionAccount.sourceName)
-            this.forms.createFusionForm(fusionAccount, reviewers)
+            await this.forms.createFusionForm(fusionAccount, reviewers)
         } else {
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
             await this.attributes.refreshUniqueAttributes(fusionAccount)
@@ -199,13 +325,63 @@ export class FusionService {
         }
     }
 
-    public async analyzeManagedAccount(account: Account): Promise<void> {
-        const fusionAccount = await this.preProcessManagedAccount(account)
+    /**
+     * Analyze all managed accounts
+     */
+    public async analyzeManagedAccounts(): Promise<void> {
+        const managedAccounts = this.sourceService.managedAccounts
 
-        this._fusionAccounts.push(fusionAccount)
+        await Promise.all(managedAccounts.map((x: Account) => this.analyzeManagedAccount(x)))
     }
 
-    private getISCAccount(fusionAccount: FusionAccount): StdAccountListOutput {
+    /**
+     * Analyze a single managed account
+     */
+    public async analyzeManagedAccount(account: Account): Promise<FusionAccount> {
+        const fusionAccount = await this.preProcessManagedAccount(account)
+        this.scoring.scoreFusionAccount(fusionAccount, this.fusionIdentities)
+
+        return fusionAccount
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Output/Listing Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * List all ISC accounts (fusion accounts and identity accounts)
+     */
+    public async listISCAccounts(): Promise<StdAccountListOutput[]> {
+        return [
+            ...this._fusionAccounts.map((x) => this.getISCAccount(x)),
+            ...Array.from(this._fusionIdentityMap.values()).map((x) => this.getISCAccount(x)),
+        ]
+    }
+
+    // ------------------------------------------------------------------------
+    // Private Helper Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Pre-process a managed account before processing or analysis
+     */
+    private async preProcessManagedAccount(account: Account): Promise<FusionAccount> {
+        const fusionAccount = FusionAccount.fromManagedAccount(this.config, account)
+
+        const managedAccountsMap = this.sourceService.managedAccountsById
+        assert(managedAccountsMap, 'Managed accounts have not been loaded')
+        fusionAccount.addManagedAccountLayer(managedAccountsMap)
+
+        this.attributes.mapAttributes(fusionAccount)
+        await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+
+        return fusionAccount
+    }
+
+    /**
+     * Convert a fusion account to ISC account output format
+     */
+    public getISCAccount(fusionAccount: FusionAccount): StdAccountListOutput {
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
         const disabled = fusionAccount.disabled
         const key = this.attributes.getSimpleKey(fusionAccount)
@@ -224,18 +400,7 @@ export class FusionService {
         }
     }
 
-    public async listISCAccounts(): Promise<StdAccountListOutput[]> {
-        return [
-            ...this._fusionAccounts.map((x) => this.getISCAccount(x)),
-            ...Array.from(this._fusionIdentityMap.values()).map((x) => this.getISCAccount(x)),
-        ]
+    public get fusionIdentities(): FusionAccount[] {
+        return Array.from(this._fusionIdentityMap.values())
     }
 }
-
-// export const createKey = (id: string): SimpleKeyType => {
-//     return {
-//         simple: {
-//             id,
-//         },
-//     }
-// }

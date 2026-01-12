@@ -43,7 +43,8 @@
         "refresh": false,
         "overwrite": true,
         "force": false,
-        "type": "normal"
+        "type": "normal",
+        "algorithm": "name-matcher"
     },
     "sourceConfig": [
         {
@@ -59,19 +60,22 @@
                             "key": "baseurl",
                             "label": "Identity Security Cloud API URL",
                             "type": "url",
-                            "required": true
+                            "required": true,
+                            "helpKey": "Base URL of your Identity Security Cloud tenant (for example, https://tenant.api.identitynow.com)"
                         },
                         {
                             "key": "clientId",
                             "label": "Personal Access Token ID",
                             "type": "text",
-                            "required": true
+                            "required": true,
+                            "helpKey": "Personal Access Token ID for an account with required API permissions"
                         },
                         {
                             "key": "clientSecret",
                             "label": "Personal Access Token secret",
                             "type": "secret",
-                            "required": true
+                            "required": true,
+                            "helpKey": "Personal Access Token secret for authentication"
                         },
                         {
                             "key": "maxRetries",
@@ -110,7 +114,8 @@
                             "key": "identityScopeQuery",
                             "label": "Identity Scope Query",
                             "type": "text",
-                            "required": false
+                            "required": false,
+                            "helpKey": "Search or filter query to limit which identities are evaluated by the connector (for example, only active workers, a specific population, or users from certain sources)"
                         }
                     ]
                 },
@@ -188,19 +193,22 @@
                             "key": "deleteEmpty",
                             "label": "Delete accounts with no authoritative accounts left?",
                             "type": "toggle",
-                            "required": false
+                            "required": false,
+                            "helpKey": "Automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization)"
                         },
                         {
                             "key": "correlateOnAggregation",
                             "label": "Correlate missing source accounts on aggregation?",
                             "type": "toggle",
-                            "required": false
+                            "required": false,
+                            "helpKey": "Attempt to automatically correlate new or previously missing source accounts during each aggregation cycle"
                         },
                         {
                             "key": "resetProcessingFlag",
                             "label": "Reset processing flag in case of unfinished processing?",
                             "type": "toggle",
-                            "required": false
+                            "required": false,
+                            "helpKey": "Clear any stuck processing state from a prior, incomplete run so that processing can safely restart"
                         }
                     ]
                 }
@@ -220,6 +228,7 @@
                             "label": "Default attribute merge from multiple sources",
                             "type": "radio",
                             "required": true,
+                            "helpKey": "Default method for combining attribute values from different authoritative sources when they populate the same attribute (can be overridden per attribute mapping)",
                             "options": [
                                 {
                                     "label": "First found",
@@ -300,7 +309,8 @@
                                             "type": "text",
                                             "parentKey": "attributeMerge",
                                             "parentValue": "source",
-                                            "required": true
+                                            "required": true,
+                                            "helpKey": "Name of the primary source whose attribute value should be used when multiple sources provide values for this attribute"
                                         }
                                     ]
                                 }
@@ -348,19 +358,22 @@
                                             "key": "name",
                                             "label": "Attribute Name",
                                             "type": "text",
-                                            "required": true
+                                            "required": true,
+                                            "helpKey": "Name of the account attribute to be generated"
                                         },
                                         {
                                             "key": "expression",
                                             "label": "Apache Velocity expression",
                                             "type": "textarea",
-                                            "required": false
+                                            "required": false,
+                                            "helpKey": "Apache Velocity template expression to generate the attribute value. Has access to Math (JavaScript Math object), Date (JavaScript Date object), and Datefns (date-fns library) for advanced operations"
                                         },
                                         {
                                             "key": "case",
                                             "label": "Case selection",
                                             "type": "select",
                                             "required": true,
+                                            "helpKey": "Case transformation to apply to the generated attribute value",
                                             "options": [
                                                 {
                                                     "label": "Do not change",
@@ -385,6 +398,7 @@
                                             "label": "Attribute Type",
                                             "type": "select",
                                             "required": true,
+                                            "helpKey": "Type of attribute: Normal (standard), Unique (must be unique across all accounts), UUID (universally unique identifier), or Counter-based (increments with stateful commands)",
                                             "options": [
                                                 {
                                                     "label": "Normal",
@@ -410,7 +424,8 @@
                                             "type": "number",
                                             "required": true,
                                             "parentKey": "type",
-                                            "parentValue": "counter"
+                                            "parentValue": "counter",
+                                            "helpKey": "Starting value for the counter (increments from this value)"
                                         },
                                         {
                                             "key": "digits",
@@ -418,31 +433,36 @@
                                             "type": "number",
                                             "required": true,
                                             "parentKey": "type",
-                                            "parentValue": "counter"
+                                            "parentValue": "counter",
+                                            "helpKey": "Minimum number of digits for the counter (padded with leading zeros if needed)"
                                         },
                                         {
                                             "key": "maxLength",
                                             "label": "Maximum length",
                                             "type": "number",
                                             "required": false,
-                                            "min": "1"
+                                            "min": "1",
+                                            "helpKey": "Maximum length for the generated value. For unique and counter attributes, the counter is preserved at the end"
                                         },
                                         {
                                             "key": "normalize",
                                             "label": "Normalize special characters?",
-                                            "type": "toggle"
+                                            "type": "toggle",
+                                            "helpKey": "Normalize special characters in the generated attribute value"
                                         },
                                         {
                                             "key": "spaces",
                                             "label": "Remove spaces?",
-                                            "type": "toggle"
+                                            "type": "toggle",
+                                            "helpKey": "Remove all spaces from the generated attribute value"
                                         },
                                         {
                                             "key": "refresh",
                                             "label": "Refresh on each aggregation?",
                                             "type": "toggle",
                                             "parentKey": "type",
-                                            "parentValue": "normal"
+                                            "parentValue": "normal",
+                                            "helpKey": "Recalculate the attribute value on every aggregation run, even if it already has a value (only available for normal attributes)"
                                         },
                                         {
                                             "key": "overwrite",
@@ -465,73 +485,137 @@
             "items": [
                 {
                     "type": "section",
-                    "sectionTitle": "Fusion Settings",
-                    "sectionHelpMessage": "<strong>Configure how potential duplicate identities are detected and reviewed.</strong><br><br>Use <strong>List of identity attributes to include in form</strong> to choose which identity attributes appear on the manual review form for potential duplicates.<br><br><strong>Manual review expiration days</strong> controls how long a fusion review remains open before it expires.<br><br>Enable <strong>Automatically correlate if identical?</strong> to automatically merge identities when their attributes meet the similarity criteria and are effectively identical.<br><br>Enable <strong>Use overall merging score for all attributes?</strong> to use a single overall similarity score (based on the LIG3 similarity function from Levenshtein distance) instead of per-attribute scores, and configure <strong>Minimum similarity score</strong> to set the threshold for auto-correlation.<br><br>Use <strong>Identity to account attribute mapping</strong> to define which identity attributes are compared and, optionally, to set dedicated similarity thresholds per attribute.",
+                    "sectionTitle": "Matching Settings",
+                    "sectionHelpMessage": "<strong>Configure how potential duplicate identities are detected.</strong><br><br>Use <strong>Fusion attribute matches</strong> to define which identity attributes are compared when detecting potential duplicate identities. For each attribute, specify the matching algorithm (Enhanced Name Matcher, Jaro-Winkler, Dice, or Double Metaphone), an optional similarity score threshold (0-100), and whether the attribute match is mandatory.<br><br>Enable <strong>Use overall fusion similarity score for all attributes?</strong> to use a single overall similarity score (calculated as the average of per-attribute similarity scores) instead of per-attribute scores. When enabled, configure <strong>Similarity score</strong> to set the threshold for auto-correlation.<br><br>Enable <strong>Automatically correlate if identical?</strong> to automatically merge identities when their attributes meet the similarity criteria and are effectively identical, without requiring manual review.",
                     "items": [
                         {
-                            "key": "fusionFormAttributes",
-                            "label": "List of identity attributes to include in form",
-                            "type": "list",
-                            "required": false
-                        },
-                        {
-                            "key": "fusionFormExpirationDays",
-                            "label": "Manual review expiration days",
-                            "type": "number",
-                            "required": true
-                        },
-                        {
-                            "key": "fusionMergingIdentical",
-                            "label": "Automatically correlate if identical?",
-                            "type": "toggle",
-                            "required": false
-                        },
-                        {
-                            "key": "fusionUseAverageScore",
-                            "label": "Use overall merging score for all attributes?",
-                            "type": "toggle",
-                            "required": false
-                        },
-                        {
-                            "key": "fusionAverageScore",
-                            "label": "Minimum similarity score [0-100] (LIG3 similarity function * 100 from Levenshtein distance)",
-                            "parentKey": "fusionUseAverageScore",
-                            "parentValue": "true",
-                            "type": "number",
-                            "required": true
-                        },
-                        {
-                            "key": "fusionAttributes",
-                            "label": "Identity to account attribute mapping",
+                            "key": "matchingConfigs",
+                            "label": "Fusion attribute matches",
                             "titleKey": "attribute",
-                            "subtitleKey": "fusionScore",
+                            "subtitleKey": "algorithm",
                             "dragNDropEnabled": true,
                             "deleteButton": true,
                             "editButton": true,
                             "addButton": true,
                             "copyButton": true,
-                            "buttonLabel": "Add attribute mapping",
+                            "buttonLabel": "Add attribute match",
                             "type": "cardList",
                             "subMenus": [
                                 {
-                                    "label": "Attribute map configuration",
+                                    "label": "Attribute match configuration",
                                     "items": [
                                         {
                                             "key": "attribute",
                                             "label": "Attribute",
                                             "type": "text",
                                             "required": true,
-                                            "helpKey": "Technical name of the identity attribute to compare with"
+                                            "helpKey": "Attribute name"
+                                        },
+                                        {
+                                            "key": "algorithm",
+                                            "label": "Matching algorithm",
+                                            "type": "select",
+                                            "required": true,
+                                            "helpKey": "Algorithm used to calculate similarity scores between attribute values when detecting potential duplicate identities. Enhanced Name Matcher: optimized for person names, accounts for common variations and cultural differences. Jaro-Winkler: measures similarity giving more weight to matches at the beginning of strings, ideal for short fields with common typos. Dice: calculates similarity based on shared bigrams (two-character sequences), suitable for longer text fields. Double Metaphone: phonetic algorithm generating codes for similar-sounding strings, ideal for fields with varying spellings but similar pronunciation.",
+                                            "options": [
+                                                {
+                                                    "label": "Enhanced Name Matcher",
+                                                    "value": "name-matcher",
+                                                    "docLink": "https://github.com/craj/name-match",
+                                                    "docLinkLabel": "Learn more about Enhanced Name Matcher"
+                                                },
+                                                {
+                                                    "label": "Jaro-Winkler",
+                                                    "value": "jaro-winkler",
+                                                    "docLink": "https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance",
+                                                    "docLinkLabel": "Learn more about Jaro-Winkler similarity"
+                                                },
+                                                {
+                                                    "label": "Dice",
+                                                    "value": "dice",
+                                                    "docLink": "https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%80%93Dice_coefficient",
+                                                    "docLinkLabel": "Learn more about Dice coefficient"
+                                                },
+                                                {
+                                                    "label": "Double Metaphone",
+                                                    "value": "double-metaphone",
+                                                    "docLink": "https://en.wikipedia.org/wiki/Metaphone",
+                                                    "docLinkLabel": "Learn more about Double Metaphone algorithm"
+                                                },
+                                                {
+                                                    "label": "Custom Algorithm (from SaaS customizer)",
+                                                    "value": "custom"
+                                                }
+                                            ]
                                         },
                                         {
                                             "key": "fusionScore",
-                                            "label": "Dedicated minimum similarity score",
+                                            "label": "Similarity score [0-100]",
                                             "type": "number",
-                                            "required": false
+                                            "required": false,
+                                            "helpKey": "Minimum similarity score threshold (0-100) for this attribute when detecting potential duplicate identities"
+                                        },
+                                        {
+                                            "key": "mandatory",
+                                            "label": "Mandatory match?",
+                                            "type": "toggle",
+                                            "required": false,
+                                            "helpKey": "Require this attribute to match before considering identities as potential duplicates"
                                         }
                                     ]
                                 }
                             ]
+                        },
+                        {
+                            "key": "fusionUseAverageScore",
+                            "label": "Use overall fusion similarity score for all attributes?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Use a single overall similarity score (calculated as the average of per-attribute similarity scores from their respective algorithms) instead of per-attribute scores for detecting potential duplicate identities"
+                        },
+                        {
+                            "key": "fusionAverageScore",
+                            "label": "Similarity score [0-100]",
+                            "parentKey": "fusionUseAverageScore",
+                            "parentValue": "true",
+                            "type": "number",
+                            "required": true,
+                            "helpKey": "Minimum overall similarity score threshold (0-100) for automatically correlating identities when overall score mode is enabled"
+                        },
+                        {
+                            "key": "fusionMergingIdentical",
+                            "label": "Automatically correlate if identical?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Automatically merge identities when their attributes meet the similarity criteria and are effectively identical, without requiring manual review"
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Review Settings",
+                    "sectionHelpMessage": "<strong>Configure the manual review form for potential duplicate identities.</strong><br><br>Use <strong>List of identity attributes to include in form</strong> to choose which identity attributes appear on the manual review form when potential duplicates are detected. This helps reviewers make informed decisions about whether identities should be merged.<br><br>Configure <strong>Manual review expiration days</strong> to set how long a fusion review form remains open before it expires and requires resolution. This ensures timely resolution of potential duplicate identity cases.",
+                    "items": [
+                        {
+                            "key": "fusionFormAttributes",
+                            "label": "List of identity attributes to include in form",
+                            "type": "list",
+                            "required": false,
+                            "helpKey": "List of identity attribute names to display on the manual review form for potential duplicate identities"
+                        },
+                        {
+                            "key": "fusionFormExpirationDays",
+                            "label": "Manual review expiration days",
+                            "type": "number",
+                            "required": true,
+                            "helpKey": "Number of days before a fusion review form expires and requires resolution"
+                        },
+                        {
+                            "key": "fusionReportOnAggregation",
+                            "label": "Send report to owner on aggregation?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Send a report to the configured email address on each aggregation run"
                         }
                     ]
                 }
@@ -550,25 +634,29 @@
                             "key": "spConnEnableStatefulCommands",
                             "label": "Support for incremental counters",
                             "required": true,
-                            "type": "toggle"
+                            "type": "toggle",
+                            "helpKey": "Enable stateful commands required for counter-based attributes to increment consistently across connector runs"
                         },
                         {
                             "key": "reset",
                             "label": "Reset accounts?",
                             "type": "toggle",
-                            "required": false
+                            "required": false,
+                            "helpKey": "Force the connector to rebuild accounts from scratch on the next run (use during testing or troubleshooting, use carefully in production)"
                         },
                         {
                             "key": "provisioningTimeout",
                             "label": "Provisioning timeout (seconds)",
                             "type": "number",
-                            "required": true
+                            "required": true,
+                            "helpKey": "Maximum time in seconds to wait for provisioning operations to complete"
                         },
                         {
                             "key": "externalLoggingEnabled",
                             "label": "Enable external logging?",
                             "type": "toggle",
-                            "required": false
+                            "required": false,
+                            "helpKey": "Send connector logs to an external logging service for centralized monitoring and analysis"
                         },
                         {
                             "key": "externalLoggingUrl",
@@ -576,7 +664,8 @@
                             "type": "url",
                             "required": false,
                             "parentKey": "externalLoggingEnabled",
-                            "parentValue": "true"
+                            "parentValue": "true",
+                            "helpKey": "URL endpoint for the external logging service"
                         },
                         {
                             "key": "externalLoggingLevel",
@@ -585,6 +674,7 @@
                             "required": false,
                             "parentKey": "externalLoggingEnabled",
                             "parentValue": "true",
+                            "helpKey": "Minimum log level to send to external logging service (Error, Warn, Info, or Debug)",
                             "options": [
                                 { "label": "Error", "value": "error" },
                                 { "label": "Warn", "value": "warn" },
@@ -644,7 +734,7 @@
                             "label": "Enable batching?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Enable batching of requests in the queue for better efficiency"
+                            "helpKey": "Enable batching of requests in the queue for better efficiency and throughput"
                         },
                         {
                             "key": "batchSize",
@@ -654,14 +744,14 @@
                             "parentValue": "true",
                             "required": true,
                             "min": "1",
-                            "helpKey": "Number of requests to include in a single processing batch"
+                            "helpKey": "Number of requests to include in a single processing batch (only used when batching is enabled)"
                         },
                         {
                             "key": "enablePriority",
                             "label": "Enable priority processing?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Use prioritization when processing the queue"
+                            "helpKey": "Use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled)"
                         }
                     ]
                 }

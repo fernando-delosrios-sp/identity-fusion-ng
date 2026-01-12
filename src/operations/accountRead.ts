@@ -9,14 +9,16 @@ export const accountRead = async (
     res: Response<StdAccountReadOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion } = serviceRegistry
+    const { log, fusion, schemas } = serviceRegistry
 
     try {
         log.info(`Reading account ${input.identity}...`)
+        await schemas.setFusionAccountSchema(input.schema)
 
-        const fusionAccount = await fetchFusionAccount(input.identity, input.schema)
+        const fusionAccount = await fetchFusionAccount(input.identity, serviceRegistry)
         assert(fusionAccount, 'Fusion account not found')
-        ;(await fusion.listISCAccounts()).forEach((x) => res.send(x))
+        const iscAccount = fusion.getISCAccount(fusionAccount)
+        res.send(iscAccount)
 
         log.info(`Account ${input.identity} read completed`)
     } catch (error) {

@@ -7,7 +7,7 @@ export const accountList = async (
     res: Response<StdAccountListOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion, forms, identities, schemas, sources, attributes } = serviceRegistry
+    const { log, fusion, forms, identities, schemas, sources, attributes, messaging } = serviceRegistry
 
     try {
         await sources.fetchAllSources()
@@ -20,13 +20,13 @@ export const accountList = async (
         await sources.aggregateManagedSources()
         // attributes.setStateWrapper(input.state)
         await attributes.initializeCounters()
-        // attributes.checkNativeIdentityDefinition()
 
         const fetchPromises = [
             sources.fetchFusionAccounts(),
             forms.fetchFormData(),
             identities.fetchIdentities(),
             sources.fetchManagedAccounts(),
+            messaging.prepareSender(),
         ]
 
         await Promise.all(fetchPromises)
@@ -38,6 +38,10 @@ export const accountList = async (
 
         await fusion.processIdentityFusionDecisions()
         await fusion.processManagedAccounts()
+        if (serviceRegistry.config.fusionReportOnAggregation) {
+            const report = fusion.generateReport()
+            await messaging.sendReport(report)
+        }
         const accounts = await fusion.listISCAccounts()
         accounts.forEach((x) => res.send(x))
 

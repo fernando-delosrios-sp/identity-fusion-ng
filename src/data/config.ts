@@ -55,7 +55,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.attributeDefinitions = config.attributeDefinitions ?? []
     config.sources = config.sources ?? []
     config.fusionFormAttributes = config.fusionFormAttributes ?? []
-    config.fusionAttributes = config.fusionAttributes ?? []
+    config.matchingConfigs = config.matchingConfigs ?? []
 
     // ============================================================================
     // Source Settings defaults
@@ -124,7 +124,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
         }
     } else {
         config.fusionScoreMap = new Map<string, number>()
-        for (const { attribute, fusionScore } of config.fusionAttributes) {
+        for (const { attribute, fusionScore } of config.matchingConfigs) {
             config.fusionScoreMap.set(attribute, fusionScore)
         }
         config.getScore = (attribute?: string): number => {

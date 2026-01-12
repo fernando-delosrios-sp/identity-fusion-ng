@@ -1,4 +1,4 @@
-import { FusionConfig, AttributeMap, AttributeDefinition } from '../model/config'
+import { FusionConfig, AttributeMap, AttributeDefinition, SourceConfig } from '../model/config'
 import { LogService } from './logService'
 import { FusionAccount } from '../model/account'
 import { SchemaService } from './schemaService'
@@ -11,12 +11,173 @@ import { assert } from '../utils/assert'
 import { SourcesApiUpdateSourceRequest } from 'sailpoint-api-client'
 import { SourceService } from './sourceService'
 
+// ============================================================================
+// Constants
+// ============================================================================
+
 const uniqueAttributeTypes = ['unique', 'uuid', 'counter']
 export const compoundKeyUniqueIdAttribute = 'CompoundKey.uniqueId'
+const fusionStateConfigPath = '/connectorAttributes/fusionState'
+
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
+type AttributeMappingConfig = {
+    attributeName: string
+    sourceAttributes: string[] // Attributes to look for in source accounts
+    attributeMerge: 'first' | 'list' | 'concatenate' | 'source'
+    source?: string // Specific source to use (for 'source' merge strategy)
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 const isUniqueAttribute = (definition: AttributeDefinition): boolean => {
     return definition.type !== undefined && uniqueAttributeTypes.includes(definition.type)
 }
+
+/**
+ * Split attribute value that may contain bracketed values like [value1] [value2]
+ */
+const attrSplit = (text: string): string[] => {
+    const regex = /\[([^ ].+)\]/g
+    const set = new Set<string>()
+
+    let match = regex.exec(text)
+    while (match) {
+        set.add(match.pop() as string)
+        match = regex.exec(text)
+    }
+
+    return set.size === 0 ? [text] : [...set]
+}
+
+/**
+ * Concatenate array of strings into bracketed format: [value1] [value2]
+ */
+export const attrConcat = (list: string[]): string => {
+    const set = new Set(list)
+    return [...set]
+        .sort()
+        .map((x) => `[${x}]`)
+        .join(' ')
+}
+
+/**
+ * Process a single attribute from source accounts based on processing configuration
+ */
+const processAttributeMapping = (
+    config: AttributeMappingConfig,
+    sourceAttributeMap: Map<string, Attributes[]>,
+    sourceOrder: string[]
+): any => {
+    const { sourceAttributes, attributeMerge, source: specifiedSource } = config
+    const multiValue: string[] = []
+
+    // Process sources in established order
+    for (const sourceName of sourceOrder) {
+        const accounts = sourceAttributeMap.get(sourceName)
+        if (!accounts || accounts.length === 0) {
+            continue
+        }
+
+        // For 'source' merge strategy, only process the specified source
+        if (attributeMerge === 'source' && specifiedSource && sourceName !== specifiedSource) {
+            continue
+        }
+
+        // Process each Attributes object in the array for this source
+        for (const account of accounts) {
+            // Look for values in source attributes (in order of sourceAttributes array)
+            const values: any[] = []
+            for (const sourceAttr of sourceAttributes) {
+                const value = account[sourceAttr]
+                if (value !== undefined && value !== null && value !== '') {
+                    values.push(value)
+                    // For 'first' and 'source' strategies, stop after first match
+                    if (['first', 'source'].includes(attributeMerge)) {
+                        break
+                    }
+                }
+            }
+
+            if (values.length > 0) {
+                // Split bracketed values
+                const splitValues = values.map((x) => (typeof x === 'string' ? attrSplit(x) : [x])).flat()
+
+                // Handle different merge strategies
+                switch (attributeMerge) {
+                    case 'first':
+                        // Return first value from first source that has it
+                        return splitValues[0]
+
+                    case 'source':
+                        if (specifiedSource === sourceName) {
+                            // Return value from specified source
+                            return splitValues[0]
+                        }
+                        break
+
+                    case 'list':
+                        // Collect values for later aggregation
+                        multiValue.push(...splitValues)
+                        break
+                    case 'concatenate':
+                        // Collect values for later aggregation
+                        multiValue.push(...splitValues)
+                        break
+                }
+            }
+        }
+    }
+
+    // Apply multi-value merge strategies
+    if (multiValue.length > 0) {
+        const uniqueSorted = [...new Set(multiValue)].sort()
+        if (attributeMerge === 'list') {
+            return uniqueSorted
+        } else if (attributeMerge === 'concatenate') {
+            return attrConcat(uniqueSorted)
+        }
+    }
+
+    return undefined
+}
+
+/**
+ * Build processing configuration for an attribute by merging schema with attributeMaps
+ */
+const buildAttributeMappingConfig = (
+    attributeName: string,
+    attributeMaps: AttributeMap[] | undefined,
+    defaultAttributeMerge: 'first' | 'list' | 'concatenate'
+): AttributeMappingConfig => {
+    // Check if attribute has specific configuration in attributeMaps
+    const attributeMap = attributeMaps?.find((am) => am.newAttribute === attributeName)
+
+    if (attributeMap) {
+        // Use attributeMap configuration
+        return {
+            attributeName,
+            sourceAttributes: attributeMap.existingAttributes || [attributeName],
+            attributeMerge: attributeMap.attributeMerge || defaultAttributeMerge,
+            source: attributeMap.source,
+        }
+    } else {
+        // Use global attributeMerge policy with direct attribute name
+        return {
+            attributeName,
+            sourceAttributes: [attributeName],
+            attributeMerge: defaultAttributeMerge,
+        }
+    }
+}
+
+// ============================================================================
+// StateWrapper Class
+// ============================================================================
 
 /**
  * Wrapper for managing stateful counters across connector runs
@@ -150,151 +311,11 @@ export class StateWrapper {
         return Object.fromEntries(this.state)
     }
 }
-/**
- * Split attribute value that may contain bracketed values like [value1] [value2]
- */
-const attrSplit = (text: string): string[] => {
-    const regex = /\[([^ ].+)\]/g
-    const set = new Set<string>()
 
-    let match = regex.exec(text)
-    while (match) {
-        set.add(match.pop() as string)
-        match = regex.exec(text)
-    }
+// ============================================================================
+// AttributeService Class
+// ============================================================================
 
-    return set.size === 0 ? [text] : [...set]
-}
-
-/**
- * Concatenate array of strings into bracketed format: [value1] [value2]
- */
-export const attrConcat = (list: string[]): string => {
-    const set = new Set(list)
-    return [...set]
-        .sort()
-        .map((x) => `[${x}]`)
-        .join(' ')
-}
-
-type AttributeMappingConfig = {
-    attributeName: string
-    sourceAttributes: string[] // Attributes to look for in source accounts
-    attributeMerge: 'first' | 'list' | 'concatenate' | 'source'
-    source?: string // Specific source to use (for 'source' merge strategy)
-}
-
-/**
- * Process a single attribute from source accounts based on processing configuration
- */
-const processAttributeMapping = (
-    config: AttributeMappingConfig,
-    sourceAttributeMap: Map<string, Attributes[]>,
-    sourceOrder: string[]
-): any => {
-    const { sourceAttributes, attributeMerge, source: specifiedSource } = config
-    const multiValue: string[] = []
-
-    // Process sources in established order
-    for (const sourceName of sourceOrder) {
-        const accounts = sourceAttributeMap.get(sourceName)
-        if (!accounts || accounts.length === 0) {
-            continue
-        }
-
-        // For 'source' merge strategy, only process the specified source
-        if (attributeMerge === 'source' && specifiedSource && sourceName !== specifiedSource) {
-            continue
-        }
-
-        // Process each Attributes object in the array for this source
-        for (const account of accounts) {
-            // Look for values in source attributes (in order of sourceAttributes array)
-            const values: any[] = []
-            for (const sourceAttr of sourceAttributes) {
-                const value = account[sourceAttr]
-                if (value !== undefined && value !== null && value !== '') {
-                    values.push(value)
-                    // For 'first' and 'source' strategies, stop after first match
-                    if (['first', 'source'].includes(attributeMerge)) {
-                        break
-                    }
-                }
-            }
-
-            if (values.length > 0) {
-                // Split bracketed values
-                const splitValues = values.map((x) => (typeof x === 'string' ? attrSplit(x) : [x])).flat()
-
-                // Handle different merge strategies
-                switch (attributeMerge) {
-                    case 'first':
-                        // Return first value from first source that has it
-                        return splitValues[0]
-
-                    case 'source':
-                        if (specifiedSource === sourceName) {
-                            // Return value from specified source
-                            return splitValues[0]
-                        }
-                        break
-
-                    case 'list':
-                        // Collect values for later aggregation
-                        multiValue.push(...splitValues)
-                        break
-                    case 'concatenate':
-                        // Collect values for later aggregation
-                        multiValue.push(...splitValues)
-                        break
-                }
-            }
-        }
-    }
-
-    // Apply multi-value merge strategies
-    if (multiValue.length > 0) {
-        const uniqueSorted = [...new Set(multiValue)].sort()
-        if (attributeMerge === 'list') {
-            return uniqueSorted
-        } else if (attributeMerge === 'concatenate') {
-            return attrConcat(uniqueSorted)
-        }
-    }
-
-    return undefined
-}
-
-/**
- * Build processing configuration for an attribute by merging schema with attributeMaps
- */
-const buildAttributeMappingConfig = (
-    attributeName: string,
-    attributeMaps: AttributeMap[] | undefined,
-    defaultAttributeMerge: 'first' | 'list' | 'concatenate'
-): AttributeMappingConfig => {
-    // Check if attribute has specific configuration in attributeMaps
-    const attributeMap = attributeMaps?.find((am) => am.newAttribute === attributeName)
-
-    if (attributeMap) {
-        // Use attributeMap configuration
-        return {
-            attributeName,
-            sourceAttributes: attributeMap.existingAttributes || [attributeName],
-            attributeMerge: attributeMap.attributeMerge || defaultAttributeMerge,
-            source: attributeMap.source,
-        }
-    } else {
-        // Use global attributeMerge policy with direct attribute name
-        return {
-            attributeName,
-            sourceAttributes: [attributeName],
-            attributeMerge: defaultAttributeMerge,
-        }
-    }
-}
-
-const fusionStateConfigPath = '/connectorAttributes/fusionState'
 /**
  * Service for attribute mapping, attribute definition, and UUID management.
  * Combines functionality for mapping attributes from source accounts and generating unique IDs.
@@ -303,16 +324,28 @@ export class AttributeService {
     private _attributeMappingConfig?: Map<string, AttributeMappingConfig>
     private _attributeDefinitionConfig: AttributeDefinition[] = []
     private _stateWrapper?: StateWrapper
+    private readonly attributeMaps?: AttributeMap[]
+    private readonly attributeMerge: 'first' | 'list' | 'concatenate'
+    private readonly sourceConfigs: SourceConfig[]
+    private readonly maxAttempts?: number
+
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
 
     constructor(
-        private config: FusionConfig,
+        config: FusionConfig,
         private schemas: SchemaService,
-        private sources: SourceService,
+        private sourceService: SourceService,
         private log: LogService,
         private locks: LockService
     ) {
+        this.attributeMaps = config.attributeMaps
+        this.attributeMerge = config.attributeMerge
+        this.sourceConfigs = config.sources
+        this.maxAttempts = config.maxAttempts
         // Clone attribute definitions into an internal array so we never touch
-        // this.config.attributeDefinitions after construction, and always have a values Set.
+        // config.attributeDefinitions after construction, and always have a values Set.
         this._attributeDefinitionConfig =
             config.attributeDefinitions?.map((x) => ({
                 ...x,
@@ -322,22 +355,15 @@ export class AttributeService {
         this.setStateWrapper(config.fusionState)
     }
 
-    public checkNativeIdentityDefinition(): void {
-        const { fusionIdentityAttribute } = this.schemas
-        if (!this._attributeDefinitionConfig.find((x) => x.name === fusionIdentityAttribute)) {
-            this._attributeDefinitionConfig.push({
-                name: fusionIdentityAttribute,
-                type: 'normal',
-                normalize: true,
-                spaces: true,
-                refresh: false,
-                overwrite: false,
-            })
-        }
-    }
+    // ------------------------------------------------------------------------
+    // Public State Management Methods
+    // ------------------------------------------------------------------------
 
+    /**
+     * Save the current state to the source configuration
+     */
     public async saveState(): Promise<void> {
-        const fusionSourceId = this.sources.fusionSourceId
+        const fusionSourceId = this.sourceService.fusionSourceId
         const stateObject = await this.getStateObject()
 
         this.log.info(`Saving state object: ${JSON.stringify(stateObject)}`)
@@ -351,9 +377,12 @@ export class AttributeService {
                 },
             ],
         }
-        await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
+        await this.sourceService.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
+    /**
+     * Get the current state object
+     */
     public async getStateObject(): Promise<{ [key: string]: number }> {
         // Wait for all pending counter increments to complete before reading state
         if (this.locks && typeof this.locks.waitForAllPendingOperations === 'function') {
@@ -385,18 +414,6 @@ export class AttributeService {
 
         return state
     }
-
-    private getAttributeDefinition(name: string): AttributeDefinition | undefined {
-        return this._attributeDefinitionConfig.find((d) => d.name === name)
-    }
-
-    // public hasAttributeDefinition(name: string): boolean {
-    //     return this._attributeDefinitionConfig.find((d) => d.name === name) !== undefined
-    // }
-
-    // public addAttributeDefinition(definition: AttributeDefinition): void {
-    //     this._attributeDefinitionConfig.push(definition)
-    // }
 
     /**
      * Set state wrapper for counter-based attributes
@@ -452,10 +469,182 @@ export class AttributeService {
         }
     }
 
+    // ------------------------------------------------------------------------
+    // Public Attribute Mapping Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Map attributes from source accounts to fusion account
+     * Processes _sourceAttributeMap in established source order if refresh is needed,
+     * using _previousAttributes as default.
+     * Uses schema attributes merged with attributeMaps to determine processing configuration.
+     */
+    public mapAttributes(fusionAccount: FusionAccount): void {
+        const { attributeBag, needsRefresh } = fusionAccount
+
+        // Start with previous attributes as default
+        const attributes = { ...attributeBag.previous }
+
+        const sourceAttributeMap = new Map(attributeBag.sources.entries())
+        if (fusionAccount.type === 'identity') {
+            sourceAttributeMap.set('identity', [attributeBag.identity])
+        }
+        const sourceOrder =
+            fusionAccount.type === 'identity'
+                ? [...this.sourceConfigs.map((sc) => sc.name), 'identity']
+                : this.sourceConfigs.map((sc) => sc.name)
+
+        // If refresh is needed, process source attributes in established order
+        if (needsRefresh && sourceAttributeMap.size > 0) {
+            const schemaAttributes = this.schemas.listSchemaAttributeNames()
+            // Process each schema attribute
+            for (const attribute of schemaAttributes) {
+                // Check if there's an attribute definition with overwrite: true
+                const definition = this._attributeDefinitionConfig.find((def) => def.name === attribute)
+                // If overwrite is true, skip mapping from source accounts - generated value will overwrite it
+                if (definition?.overwrite) {
+                    continue
+                }
+
+                // Build processing configuration (merges schema with attributeMaps)
+                const processingConfig = this.attributeMappingConfig.get(attribute)!
+
+                // Process the attribute based on its configuration
+                const processedValue = processAttributeMapping(processingConfig, sourceAttributeMap, sourceOrder)
+
+                // Set the processed value if found
+                if (processedValue !== undefined) {
+                    attributes[attribute] = processedValue
+                }
+            }
+        }
+
+        // Set the mapped attributes
+        attributeBag.current = attributes
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Attribute Refresh Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Refresh all attributes for a fusion account
+     */
+    public async refreshAttributes(fusionAccount: FusionAccount): Promise<void> {
+        const allDefinitions = this._attributeDefinitionConfig
+        await this._refreshAttributes(fusionAccount, allDefinitions)
+    }
+
+    /**
+     * Refresh non-unique attributes for a fusion account
+     */
+    public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
+        if (!fusionAccount.needsRefresh) return
+        this.log.debug(
+            `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
+        )
+
+        const allDefinitions = this._attributeDefinitionConfig
+        const nonUniqueAttributeDefinitions = allDefinitions.filter((x) => !isUniqueAttribute(x))
+
+        await this._refreshAttributes(fusionAccount, nonUniqueAttributeDefinitions)
+    }
+
+    /**
+     * Refresh unique attributes for a fusion account
+     */
+    public async refreshUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
+        if (!fusionAccount.needsRefresh) return
+        this.log.debug(`Refreshing unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`)
+
+        const allDefinitions = this._attributeDefinitionConfig
+        const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
+
+        await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
+    }
+
+    /**
+     * Register unique attribute values for a fusion account
+     */
+    public async registerUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
+        this.log.debug(`Registering unique attributes for account: ${fusionAccount.nativeIdentity}`)
+
+        const attributeDefinitions = this._attributeDefinitionConfig
+        const uniqueDefinitions = attributeDefinitions.filter((def) => def.type === 'unique' || def.type === 'uuid')
+
+        for (const def of uniqueDefinitions) {
+            const value = fusionAccount.attributeBag.current[def.name]
+            if (value !== undefined && value !== null && value !== '') {
+                const valueStr = String(value)
+                const lockKey = `${def.type}:${def.name}`
+                await this.locks.withLock(lockKey, async () => {
+                    const defConfig = this.getAttributeDefinition(def.name)
+                    assert(defConfig, `Attribute ${def.name} not found in attribute definition config`)
+                    defConfig.values!.add(valueStr)
+                })
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Key Generation Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Generate a simple key for a fusion account
+     */
+    public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType {
+        const { fusionIdentityAttribute } = this.schemas
+        const uniqueId = fusionAccount.nativeIdentity ?? (fusionAccount.attributes[fusionIdentityAttribute] as string)
+        assert(uniqueId, `Unique ID is required for simple key`)
+
+        return SimpleKey(uniqueId)
+    }
+
+    /**
+     * Generate a compound key for a fusion account
+     */
+    public getCompoundKey(fusionAccount: FusionAccount): CompoundKeyType {
+        const { fusionDisplayAttribute } = this.schemas
+
+        const uniqueId = fusionAccount.attributes[compoundKeyUniqueIdAttribute] as string
+        assert(uniqueId, `Unique ID is required for compound key`)
+        const lookupId = (fusionAccount.attributes[fusionDisplayAttribute] as string) ?? uniqueId
+
+        return CompoundKey(lookupId, uniqueId)
+    }
+
+    // ------------------------------------------------------------------------
+    // Private Configuration Helper Methods
+    // ------------------------------------------------------------------------
+
+    private get attributeMappingConfig(): Map<string, AttributeMappingConfig> {
+        if (!this._attributeMappingConfig) {
+            this._attributeMappingConfig = new Map()
+            const schemaAttributes = this.schemas.getSchemaAttributes()
+            for (const schemaAttr of schemaAttributes) {
+                const attrName = schemaAttr.name!
+                this._attributeMappingConfig.set(
+                    attrName,
+                    buildAttributeMappingConfig(attrName, this.attributeMaps, this.attributeMerge)
+                )
+            }
+        }
+        return this._attributeMappingConfig
+    }
+
+    private getAttributeDefinition(name: string): AttributeDefinition | undefined {
+        return this._attributeDefinitionConfig.find((d) => d.name === name)
+    }
+
     private getStateWrapper(): StateWrapper {
         assert(this._stateWrapper, 'State wrapper is not set')
         return this._stateWrapper!
     }
+
+    // ------------------------------------------------------------------------
+    // Private Context Builder Methods
+    // ------------------------------------------------------------------------
 
     /**
      * Build Velocity context from FusionAccount's attributeBag
@@ -473,6 +662,10 @@ export class AttributeService {
 
         return context
     }
+
+    // ------------------------------------------------------------------------
+    // Private Attribute Generation Methods
+    // ------------------------------------------------------------------------
 
     /**
      * Generate attribute value by evaluating the template expression
@@ -556,7 +749,7 @@ export class AttributeService {
             let generatedValue: string | undefined
             let isUnique = false
             let attempts = 0
-            const maxAttempts = this.config.maxAttempts ?? 100 // Prevent infinite loops
+            const maxAttempts = this.maxAttempts ?? 100 // Prevent infinite loops
 
             while (!isUnique && attempts < maxAttempts) {
                 // Generate a candidate value - generateAttributeValue will check against registeredValues
@@ -611,7 +804,7 @@ export class AttributeService {
 
             let generatedValue: string | undefined
             let attempts = 0
-            const maxAttempts = this.config.maxAttempts ?? 100 // Prevent infinite loops (UUID collisions are extremely rare)
+            const maxAttempts = this.maxAttempts ?? 100 // Prevent infinite loops (UUID collisions are extremely rare)
 
             // Keep generating UUIDs until we find one that's unique
             while (attempts < maxAttempts) {
@@ -646,6 +839,10 @@ export class AttributeService {
             return undefined
         })
     }
+
+    // ------------------------------------------------------------------------
+    // Private Attribute Generation Orchestration
+    // ------------------------------------------------------------------------
 
     /**
      * Generate attribute value for a single attribute definition and update fusionAccount.attributeBag.current
@@ -696,6 +893,9 @@ export class AttributeService {
         }
     }
 
+    /**
+     * Refresh attributes for a fusion account based on the provided definitions
+     */
     private async _refreshAttributes(
         fusionAccount: FusionAccount,
         attributeDefinitions: AttributeDefinition[]
@@ -704,136 +904,5 @@ export class AttributeService {
         for (const definition of attributeDefinitions) {
             await this.generateAttribute(definition, fusionAccount)
         }
-    }
-
-    private get attributeMappingConfig(): Map<string, AttributeMappingConfig> {
-        if (!this._attributeMappingConfig) {
-            this._attributeMappingConfig = new Map()
-            const schemaAttributes = this.schemas.getSchemaAttributes()
-            for (const schemaAttr of schemaAttributes) {
-                const attrName = schemaAttr.name!
-                this._attributeMappingConfig.set(
-                    attrName,
-                    buildAttributeMappingConfig(attrName, this.config.attributeMaps, this.config.attributeMerge)
-                )
-            }
-        }
-        return this._attributeMappingConfig
-    }
-
-    /**
-     * Map attributes from source accounts to fusion account
-     * Processes _sourceAttributeMap in established source order if refresh is needed,
-     * using _previousAttributes as default.
-     * Uses schema attributes merged with attributeMaps to determine processing configuration.
-     */
-    public mapAttributes(fusionAccount: FusionAccount): void {
-        const { attributeBag, needsRefresh } = fusionAccount
-
-        // Start with previous attributes as default
-        const attributes = { ...attributeBag.previous }
-
-        const sourceAttributeMap = new Map(attributeBag.sources.entries())
-        if (fusionAccount.type === 'identity') {
-            sourceAttributeMap.set('identity', [attributeBag.identity])
-        }
-        const sourceOrder =
-            fusionAccount.type === 'identity'
-                ? [...this.config.sources.map((sc) => sc.name), 'identity']
-                : this.config.sources.map((sc) => sc.name)
-
-        // If refresh is needed, process source attributes in established order
-        if (needsRefresh && sourceAttributeMap.size > 0) {
-            const schemaAttributes = this.schemas.listSchemaAttributeNames()
-            // Process each schema attribute
-            for (const attribute of schemaAttributes) {
-                // Check if there's an attribute definition with overwrite: true
-                const definition = this._attributeDefinitionConfig.find((def) => def.name === attribute)
-                // If overwrite is true, skip mapping from source accounts - generated value will overwrite it
-                if (definition?.overwrite) {
-                    continue
-                }
-
-                // Build processing configuration (merges schema with attributeMaps)
-                const processingConfig = this.attributeMappingConfig.get(attribute)!
-
-                // Process the attribute based on its configuration
-                const processedValue = processAttributeMapping(processingConfig, sourceAttributeMap, sourceOrder)
-
-                // Set the processed value if found
-                if (processedValue !== undefined) {
-                    attributes[attribute] = processedValue
-                }
-            }
-        }
-
-        // Set the mapped attributes
-        attributeBag.current = attributes
-    }
-
-    public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
-        this.log.debug(
-            `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
-        )
-
-        // Process attributes (no values map needed for non-unique attributes)
-        const allDefinitions = this._attributeDefinitionConfig
-        const nonUniqueAttributeDefinitions = allDefinitions.filter((x) => !isUniqueAttribute(x))
-
-        await this._refreshAttributes(fusionAccount, nonUniqueAttributeDefinitions)
-    }
-
-    public async refreshUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
-        this.log.debug(`Refreshing unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`)
-
-        const allDefinitions = this._attributeDefinitionConfig
-        const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
-
-        await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
-    }
-
-    public async refreshAttributes(fusionAccount: FusionAccount): Promise<void> {
-        const allDefinitions = this._attributeDefinitionConfig
-        await this._refreshAttributes(fusionAccount, allDefinitions)
-    }
-
-    public async registerUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        this.log.debug(`Registering unique attributes for account: ${fusionAccount.nativeIdentity}`)
-
-        const attributeDefinitions = this._attributeDefinitionConfig
-        const uniqueDefinitions = attributeDefinitions.filter((def) => def.type === 'unique' || def.type === 'uuid')
-
-        for (const def of uniqueDefinitions) {
-            const value = fusionAccount.attributeBag.current[def.name]
-            if (value !== undefined && value !== null && value !== '') {
-                const valueStr = String(value)
-                const lockKey = `${def.type}:${def.name}`
-                await this.locks.withLock(lockKey, async () => {
-                    const defConfig = this.getAttributeDefinition(def.name)
-                    assert(defConfig, `Attribute ${def.name} not found in attribute definition config`)
-                    defConfig.values!.add(valueStr)
-                })
-            }
-        }
-    }
-
-    public getCompoundKey(fusionAccount: FusionAccount): CompoundKeyType {
-        const { fusionDisplayAttribute } = this.schemas
-
-        const uniqueId = fusionAccount.attributes[compoundKeyUniqueIdAttribute] as string
-        assert(uniqueId, `Unique ID is required for compound key`)
-        const lookupId = (fusionAccount.attributes[fusionDisplayAttribute] as string) ?? uniqueId
-
-        return CompoundKey(lookupId, uniqueId)
-    }
-
-    public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType {
-        const { fusionIdentityAttribute } = this.schemas
-        const uniqueId = fusionAccount.nativeIdentity ?? (fusionAccount.attributes[fusionIdentityAttribute] as string)
-        assert(uniqueId, `Unique ID is required for simple key`)
-
-        return SimpleKey(uniqueId)
     }
 }

@@ -1,21 +1,10 @@
 import { Account, IdentityDocument } from 'sailpoint-api-client'
 import { getDateFromISOString } from '../utils/date'
 import { FusionDecision } from './form'
-import { FusionConfig } from './config'
+import { FusionConfig, SourceConfig } from './config'
 import { Attributes } from '@sailpoint/connector-sdk'
 import { compoundKeyUniqueIdAttribute } from '../services/attributeService'
-
-export type SimilarAccountMatch = {
-    identity: IdentityDocument
-    score: Map<string, string>
-}
-
-export type AccountAnalysis = {
-    account: Account
-    results: string[]
-    identicalMatch: IdentityDocument | undefined
-    similarMatches: SimilarAccountMatch[]
-}
+import { FusionMatch } from '../services/scoringService'
 
 type AttributeBag = {
     previous: Attributes
@@ -27,36 +16,66 @@ type AttributeBag = {
 
 // TODO: Limit the size of the history array
 export class FusionAccount {
-    public _attributeBag: AttributeBag = {
+    // ------------------------------------------------------------------------
+    // Public state
+    // ------------------------------------------------------------------------
+
+    public duplicate = false
+    public disabled = false
+
+    public history: string[] = []
+
+    public accountIds: Set<string> = new Set()
+    public missingAccountIds: Set<string> = new Set()
+
+    public email?: string
+    public name?: string
+    public displayName?: string
+    public sourceName = ''
+
+    public statuses: Set<string> = new Set()
+    public actions: Set<string> = new Set()
+    public reviews: Set<string> = new Set()
+    public sources: Set<string> = new Set()
+
+    public fusionMatches: FusionMatch[] = []
+
+    // ------------------------------------------------------------------------
+    // Private backing fields (use leading "_" only for fields with accessors)
+    // ------------------------------------------------------------------------
+
+    private _attributeBag: AttributeBag = {
         previous: {},
         current: {},
         identity: {},
         accounts: [],
         sources: new Map(),
     }
-    public duplicate: boolean = false
-    private _potentialDuplicates: FusionAccount[] = []
-    public disabled: boolean = false
-    private _needsRefresh: boolean = false
-    private _type: 'fusion' | 'identity' | 'managed' | 'decision' = 'fusion'
-    public history: string[] = []
-    public accountIds: Set<string> = new Set()
-    private _previousAccountIds: Set<string> = new Set()
-    public missingAccountIds: Set<string> = new Set()
-    private _modified: Date = new Date()
-    private _identityId: string = ''
-    public email?: string
-    public name?: string
-    public displayName?: string
-    public sourceName: string = ''
-    private _nativeIdentity?: string
-    public statuses: Set<string> = new Set()
-    public actions: Set<string> = new Set()
-    public reviews: Set<string> = new Set()
-    public sources: Set<string> = new Set()
-    private _correlationPromises: Promise<void>[] = []
 
-    private constructor(private config: FusionConfig) {}
+    private _needsRefresh = false
+    private _type: 'fusion' | 'identity' | 'managed' | 'decision' = 'fusion'
+
+    private _previousAccountIds: Set<string> = new Set()
+    private _modified: Date = new Date()
+    private _identityId = ''
+    private _nativeIdentity?: string
+
+    private _correlationPromises: Promise<void>[] = []
+    private _isMatch = false
+
+    // ------------------------------------------------------------------------
+    // Construction
+    // ------------------------------------------------------------------------
+
+    private constructor(
+        private readonly sourceConfigs: SourceConfig[],
+        private readonly cloudDisplayName: string,
+        private readonly fusionAccountRefreshThresholdInSeconds: number
+    ) {}
+
+    // ------------------------------------------------------------------------
+    // Basic accessors
+    // ------------------------------------------------------------------------
 
     get type(): 'fusion' | 'identity' | 'managed' | 'decision' {
         return this._type
@@ -74,6 +93,15 @@ export class FusionAccount {
         return this._identityId
     }
 
+    // ------------------------------------------------------------------------
+    // Core mutation helpers
+    // ------------------------------------------------------------------------
+
+    public addFusionMatch(fusionMatch: FusionMatch): void {
+        this.fusionMatches.push(fusionMatch)
+        this._isMatch = true
+    }
+
     private addHistory(message: string): void {
         const now = new Date().toISOString().split('T')[0]
         const datedMessage = `[${now}] ${message}`
@@ -81,7 +109,11 @@ export class FusionAccount {
     }
 
     public static fromFusionAccount(config: FusionConfig, account: Account): FusionAccount {
-        const fusionAccount = new FusionAccount(config)
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName ?? '',
+            config.fusionAccountRefreshThresholdInSeconds
+        )
         fusionAccount._nativeIdentity = account.nativeIdentity
         fusionAccount.name = account.name ?? undefined
         fusionAccount.displayName = fusionAccount.name
@@ -105,7 +137,11 @@ export class FusionAccount {
     }
 
     public static fromIdentity(config: FusionConfig, identity: IdentityDocument): FusionAccount {
-        const fusionAccount = new FusionAccount(config)
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName,
+            config.fusionAccountRefreshThresholdInSeconds
+        )
 
         fusionAccount._type = 'identity'
         fusionAccount.name = identity.name
@@ -121,7 +157,11 @@ export class FusionAccount {
     }
 
     public static fromFusionDecision(config: FusionConfig, decision: FusionDecision): FusionAccount {
-        const fusionAccount = new FusionAccount(config)
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName,
+            config.fusionAccountRefreshThresholdInSeconds
+        )
 
         fusionAccount._type = 'decision'
         fusionAccount._needsRefresh = true
@@ -133,7 +173,11 @@ export class FusionAccount {
     }
 
     public static fromManagedAccount(config: FusionConfig, account: Account): FusionAccount {
-        const fusionAccount = new FusionAccount(config)
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName,
+            config.fusionAccountRefreshThresholdInSeconds
+        )
 
         fusionAccount._type = 'managed'
         fusionAccount._needsRefresh = true
@@ -154,7 +198,7 @@ export class FusionAccount {
         this.displayName = identity.attributes?.displayName as string
         this._attributeBag.identity = identity.attributes ?? {}
         this._identityId = identity.id ?? ''
-        const sourceNames = this.config.sources.map((sc) => sc.name)
+        const sourceNames = this.sourceConfigs.map((sc) => sc.name)
         identity.accounts?.forEach((account) => {
             if (sourceNames.includes(account.source?.name ?? '')) {
                 this.setCorrelatedAccount(account.id)
@@ -224,7 +268,7 @@ export class FusionAccount {
 
         if (!this._needsRefresh) {
             const modified = getDateFromISOString(account.modified)
-            const thresholdMs = this.config.fusionAccountRefreshThresholdInSeconds * 1000
+            const thresholdMs = this.fusionAccountRefreshThresholdInSeconds * 1000
             if (modified.getTime() > this._modified.getTime() + thresholdMs) {
                 this._needsRefresh = true
             }
@@ -263,7 +307,7 @@ export class FusionAccount {
     }
 
     public reviewerForSources(): string[] {
-        const sourceNames = this.config.sources.map((sc) => sc.name)
+        const sourceNames = this.sourceConfigs.map((sc) => sc.name)
         return sourceNames.filter((source) => this.actions.has(source))
     }
 
@@ -332,12 +376,12 @@ export class FusionAccount {
 
     private setBaseline() {
         this.statuses.add('baseline')
-        this.addHistory(`Set ${this.name} (${this.sourceName}) as baseline`)
+        this.addHistory(`Set ${this.name} [${this.sourceName}] as baseline`)
     }
 
     private setUnmatched() {
         this.statuses.add('unmatched')
-        this.addHistory(`Set ${this.name} (${this.sourceName}) as unmatched`)
+        this.addHistory(`Set ${this.name} [${this.sourceName}] as unmatched`)
     }
 
     private setManual(decision: FusionDecision) {
@@ -413,5 +457,9 @@ export class FusionAccount {
 
     public disable(): void {
         this.disabled = true
+    }
+
+    public get isMatch(): boolean {
+        return this._isMatch
     }
 }

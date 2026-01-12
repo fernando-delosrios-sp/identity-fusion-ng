@@ -11,6 +11,7 @@ import { FormService } from './formService'
 import { AttributeService } from './attributeService'
 import { EntitlementService } from './entitlementService'
 import { ScoringService } from './scoringService'
+import { MessagingService } from './messagingService'
 
 export class ServiceRegistry {
     private static current?: ServiceRegistry
@@ -25,6 +26,7 @@ export class ServiceRegistry {
     public attributes: AttributeService
     public entitlements: EntitlementService
     public scoring: ScoringService
+    public messaging: MessagingService
 
     constructor(
         public config: FusionConfig,
@@ -40,7 +42,10 @@ export class ServiceRegistry {
         this.entitlements = context.entitlementService ?? new EntitlementService(this.log, this.sources)
         this.scoring = context.scoringService ?? new ScoringService(this.config, this.log)
         this.identities = context.identityService ?? new IdentityService(this.config, this.log, this.client)
-        this.forms = context.formService ?? new FormService(this.config, this.log, this.client)
+        this.messaging =
+            context.messagingService ?? new MessagingService(this.config, this.log, this.client, this.identities)
+        this.forms =
+            context.formService ?? new FormService(this.config, this.log, this.client, this.identities, this.messaging)
 
         // Initialize services that depend on others (in dependency order)
         this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)

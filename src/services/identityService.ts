@@ -1,31 +1,53 @@
-import { AccountsApi, AccountsApiUpdateAccountRequest, IdentityDocument, Search } from 'sailpoint-api-client'
+import { AccountsApiUpdateAccountRequest, IdentityDocument, Search } from 'sailpoint-api-client'
 import { FusionConfig } from '../model/config'
 import { ClientService } from './clientService'
 import { LogService } from './logService'
 import { assert } from '../utils/assert'
+
+// ============================================================================
+// IdentityService Class
+// ============================================================================
 
 /**
  * Service for managing identity documents, identity lookups, and reviewer management.
  */
 export class IdentityService {
     private identitiesById: Map<string, IdentityDocument> = new Map()
+    private readonly identityScopeQuery?: string
+
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
 
     constructor(
-        private config: FusionConfig,
+        config: FusionConfig,
         private log: LogService,
         private client: ClientService
-    ) {}
+    ) {
+        this.identityScopeQuery = config.identityScopeQuery
+    }
 
+    // ------------------------------------------------------------------------
+    // Public Properties/Getters
+    // ------------------------------------------------------------------------
+
+    /**
+     * Get all identities
+     */
     public get identities(): IdentityDocument[] {
         assert(this.identitiesById, 'Identities not fetched')
         return Array.from(this.identitiesById.values())
     }
 
+    // ------------------------------------------------------------------------
+    // Public Fetch Methods
+    // ------------------------------------------------------------------------
+
     /**
      * Fetch identities and cache them
      */
     public async fetchIdentities(): Promise<void> {
-        if (this.config.identityScopeQuery) {
+        if (this.identityScopeQuery) {
             this.log.info('Fetching identities.')
 
             //TODO: only fetch relevant attributes
@@ -33,7 +55,7 @@ export class IdentityService {
             const query: Search = {
                 indices: ['identities'],
                 query: {
-                    query: this.config.identityScopeQuery,
+                    query: this.identityScopeQuery,
                 },
                 includeNested: true,
             }
@@ -49,6 +71,9 @@ export class IdentityService {
         }
     }
 
+    /**
+     * Fetch a single identity by ID and cache it
+     */
     public async fetchIdentityById(id: string): Promise<void> {
         this.log.info(`Fetching identity ${id}.`)
 
@@ -66,6 +91,26 @@ export class IdentityService {
         this.identitiesById = new Map(identities.map((identity) => [identity.id, identity]))
     }
 
+    // ------------------------------------------------------------------------
+    // Public Lookup Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Get identity by ID from cache
+     */
+    public getIdentityById(id?: string): IdentityDocument | undefined {
+        if (id) {
+            return this.identitiesById.get(id)
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Correlation Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Correlate an account to an identity
+     */
     public async correlateAccount(accountId: string, identityId: string): Promise<boolean> {
         const { accountsApi } = this.client
 
@@ -84,18 +129,18 @@ export class IdentityService {
             return await accountsApi.updateAccount(requestParameters)
         }
 
-        const response = await this.client.execute(updateAccount)
-
         //TODO: handle response
+        await this.client.execute(updateAccount)
         return true
     }
 
-    public getIdentityById(id?: string): IdentityDocument | undefined {
-        if (id) {
-            return this.identitiesById.get(id)
-        }
-    }
+    // ------------------------------------------------------------------------
+    // Public Utility Methods
+    // ------------------------------------------------------------------------
 
+    /**
+     * Clear the identity cache
+     */
     public clear(): void {
         this.identitiesById.clear()
     }

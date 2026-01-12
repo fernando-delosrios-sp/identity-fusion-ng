@@ -48,9 +48,11 @@ export interface AttributeDefinition {
     values?: Set<string>
 }
 
-export interface FusionAttribute {
+export interface MatchingConfig {
     attribute: string
+    algorithm?: 'name-matcher' | 'jaro-winkler' | 'dice' | 'double-metaphone' | 'average' | 'custom'
     fusionScore?: number
+    mandatory?: boolean
 }
 
 // ============================================================================
@@ -140,18 +142,23 @@ export type AttributeDefinitionSettingsMenu = AttributeDefinitionSettingsSection
 // Fusion Settings Menu
 // ============================================================================
 
-// Fusion Settings Section
-export interface FusionSettingsSection {
-    fusionFormAttributes?: string[]
-    fusionFormExpirationDays: number
-    fusionMergingIdentical: boolean
+// Matching Settings Section
+export interface MatchingSettingsSection {
+    matchingConfigs?: MatchingConfig[]
     fusionUseAverageScore: boolean
     fusionAverageScore?: number
-    fusionAttributes?: FusionAttribute[]
+    fusionMergingIdentical: boolean
+}
+
+// Review Settings Section
+export interface ReviewSettingsSection {
+    fusionFormAttributes?: string[]
+    fusionFormExpirationDays: number
+    fusionReportOnAggregation?: boolean
 }
 
 // Fusion Settings Menu
-export type FusionSettingsMenu = FusionSettingsSection
+export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSettingsSection {}
 
 // ============================================================================
 // Advanced Settings Menu
@@ -194,6 +201,34 @@ export interface AdvancedConnectionSettingsSection {
      * Used for queueConfig.maxConcurrentRequests.
      */
     maxConcurrentRequests?: number
+
+    /**
+     * Wait time (in milliseconds) for processing operations.
+     * Reserved for future scheduling features.
+     */
+    processingWait?: number
+
+    /**
+     * Base delay (in milliseconds) between retry attempts for failed requests.
+     * For HTTP 429 responses, the retry delay is automatically calculated from the retry-after header.
+     */
+    retryDelay?: number
+
+    /**
+     * Enable batching of requests in the queue for better efficiency.
+     */
+    enableBatching?: boolean
+
+    /**
+     * Number of requests to include in a single processing batch.
+     */
+    batchSize?: number
+
+    /**
+     * Enable priority processing in the queue, allowing more important requests to be handled first.
+     * Enabled by default when queue is enabled.
+     */
+    enablePriority?: boolean
 }
 
 // Advanced Settings Menu

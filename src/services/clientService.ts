@@ -32,8 +32,8 @@ import { createRetriesConfig } from '../client/axios'
 export class ClientService {
     protected readonly queue: ApiQueue | null
     public readonly config: Configuration
-    public readonly fusionConfig: FusionConfig
     protected readonly enableQueue: boolean
+    private readonly pageSize: number
 
     // Lazy-loaded API instances
     private _accountsApi?: AccountsApi
@@ -52,7 +52,6 @@ export class ClientService {
         fusionConfig: FusionConfig,
         protected log: LogService
     ) {
-        this.fusionConfig = fusionConfig
         const tokenUrl = new URL(fusionConfig.baseurl).origin + fusionConfig.tokenUrlPath
 
         // Determine if queue and retry are enabled
@@ -64,6 +63,9 @@ export class ClientService {
         const retriesConfig = createRetriesConfig(maxRetries)
         this.config = new Configuration({ ...fusionConfig, tokenUrl })
         this.config.retriesConfig = retriesConfig
+
+        // Store pageSize for pagination
+        this.pageSize = fusionConfig.pageSize
 
         // Only initialize the queue if enableQueue is true
         if (this.enableQueue) {
@@ -214,7 +216,7 @@ export class ClientService {
         baseParameters: Partial<TRequestParams> = {},
         priority: QueuePriority = QueuePriority.NORMAL
     ): Promise<T[]> {
-        const pageSize = this.fusionConfig.pageSize // Paging size is driven by config
+        const pageSize = this.pageSize // Paging size is driven by config
         const allItems: T[] = []
 
         // Make initial request to get first page
@@ -289,7 +291,7 @@ export class ClientService {
      * ```
      */
     public async paginateSearchApi<T>(search: Search, priority: QueuePriority = QueuePriority.NORMAL): Promise<T[]> {
-        const pageSize = this.fusionConfig.pageSize
+        const pageSize = this.pageSize
         const allItems: T[] = []
 
         // Ensure sort by id as required for searchAfter paging

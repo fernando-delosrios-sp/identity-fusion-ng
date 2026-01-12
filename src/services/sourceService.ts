@@ -17,11 +17,10 @@ import { LogService } from './logService'
 import { assert, softAssert } from '../utils/assert'
 import { getDateFromISOString } from '../utils/date'
 
-/**
- * Service for managing sources, source discovery, and aggregation coordination.
- * Handles all source-related operations including finding the fusion source,
- * managing managed sources, and coordinating aggregations.
- */
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
 type SourceInfo = {
     id: string
     name: string
@@ -29,6 +28,15 @@ type SourceInfo = {
     config?: SourceConfig // Only present for managed sources
 }
 
+// ============================================================================
+// SourceService Class
+// ============================================================================
+
+/**
+ * Service for managing sources, source discovery, and aggregation coordination.
+ * Handles all source-related operations including finding the fusion source,
+ * managing managed sources, and coordinating aggregations.
+ */
 export class SourceService {
     // Unified source storage - both managed and fusion sources
     private sourcesById: Map<string, SourceInfo> = new Map()
@@ -37,19 +45,33 @@ export class SourceService {
     private fusionLatestAggregationDate: Date | undefined
 
     // Account caching
-    public managedAccountsById: Map<string, Account> = new Map()
-    public managedAccountsByName: Map<string, Account> = new Map()
-    private managedAccounts?: Account[]
+    public managedAccountsById?: Map<string, Account>
+    public fusionAccountsByNativeIdentity?: Map<string, Account>
 
-    public fusionAccountsByNativeIdentity: Map<string, Account> = new Map()
-    public fusionAccountsByName: Map<string, Account> = new Map()
-    private _fusionAccounts?: Account[]
+    // Config settings
+    private readonly sources: SourceConfig[]
+    private readonly spConnectorInstanceId: string
+    private readonly taskResultRetries: number
+    private readonly taskResultWait: number
+
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
 
     constructor(
-        private config: FusionConfig,
+        config: FusionConfig,
         private log: LogService,
         private client: ClientService
-    ) {}
+    ) {
+        this.sources = config.sources
+        this.spConnectorInstanceId = config.spConnectorInstanceId
+        this.taskResultRetries = config.taskResultRetries
+        this.taskResultWait = config.taskResultWait
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Properties/Getters
+    // ------------------------------------------------------------------------
 
     /**
      * Get fusion source ID
@@ -58,13 +80,6 @@ export class SourceService {
         const fusionSource = this.getFusionSource()
         assert(fusionSource, 'Fusion source not found')
         return fusionSource.id
-    }
-
-    /**
-     * Get fusion source info
-     */
-    public getFusionSource(): SourceInfo | undefined {
-        return Array.from(this.sourcesById.values()).find((s) => !s.isManaged)
     }
 
     /**
@@ -83,16 +98,29 @@ export class SourceService {
         return this._allSources
     }
 
-    // public get managedAccounts(): Account[] {
-    //     assert(this.managedAccounts, 'Managed accounts have not been loaded')
-    //     return this.managedAccounts
-    // }
-
-    public get fusionAccounts(): Account[] {
-        assert(this._fusionAccounts, 'Fusion accounts have not been loaded')
-        return this._fusionAccounts
+    /**
+     * Get all managed accounts
+     */
+    public get managedAccounts(): Account[] {
+        assert(this.managedAccountsById, 'Managed accounts have not been loaded')
+        return Array.from(this.managedAccountsById.values())
     }
 
+    /**
+     * Get all fusion accounts
+     */
+    public get fusionAccounts(): Account[] {
+        assert(this.fusionAccountsByNativeIdentity, 'Fusion accounts have not been loaded')
+        return Array.from(this.fusionAccountsByNativeIdentity.values())
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Source Fetch Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Fetch all sources (managed and fusion) and cache them
+     */
     public async fetchAllSources(): Promise<void> {
         this.log.debug('Fetching all sources')
         const { sourcesApi } = this.client
@@ -106,7 +134,7 @@ export class SourceService {
         const resolvedSources: SourceInfo[] = []
 
         // Add managed sources (from config.sources)
-        for (const sourceConfig of this.config.sources) {
+        for (const sourceConfig of this.sources) {
             const apiSource = apiSources.find((x) => x.name === sourceConfig.name)
             assert(apiSource, `Unable to find source: ${sourceConfig.name}`)
             resolvedSources.push({
@@ -119,7 +147,7 @@ export class SourceService {
 
         // Find and add fusion source
         const fusionSource = apiSources.find(
-            (x) => (x.connectorAttributes as BaseConfig).spConnectorInstanceId === this.config.spConnectorInstanceId
+            (x) => (x.connectorAttributes as BaseConfig).spConnectorInstanceId === this.spConnectorInstanceId
         )
         assert(fusionSource, 'Fusion source not found')
         assert(fusionSource.owner, 'Fusion source owner not found')
@@ -139,6 +167,17 @@ export class SourceService {
         this.log.debug(`Fetched ${managedCount} managed source(s) and fusion source: ${fusionSource.name}`)
     }
 
+    // ------------------------------------------------------------------------
+    // Public Source Lookup Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Get fusion source info
+     */
+    public getFusionSource(): SourceInfo | undefined {
+        return Array.from(this.sourcesById.values()).find((s) => !s.isManaged)
+    }
+
     /**
      * Get source info by ID
      */
@@ -153,12 +192,16 @@ export class SourceService {
         return this.sourcesByName.get(name)
     }
 
+    // ------------------------------------------------------------------------
+    // Public Source Configuration Methods
+    // ------------------------------------------------------------------------
+
     /**
      * Get source configuration by source name (only for managed sources)
      */
     public getSourceConfig(sourceName: string): SourceConfig | undefined {
         const sourceInfo = this.sourcesByName.get(sourceName)
-        return sourceInfo?.config ?? this.config.sources.find((sc) => sc.name === sourceName)
+        return sourceInfo?.config ?? this.sources.find((sc) => sc.name === sourceName)
     }
 
     /**
@@ -167,6 +210,10 @@ export class SourceService {
     public getAccountFilter(sourceName: string): string | undefined {
         return this.getSourceConfig(sourceName)?.accountFilter
     }
+
+    // ------------------------------------------------------------------------
+    // Public Account Fetch Methods (Bulk)
+    // ------------------------------------------------------------------------
 
     /**
      * Fetch all accounts for a given source ID, applying SourceConfig.accountFilter if present (for managed sources).
@@ -199,12 +246,9 @@ export class SourceService {
      */
     public async fetchFusionAccounts(): Promise<void> {
         this.log.debug('Fetching fusion accounts')
-        this._fusionAccounts = await this.fetchSourceAccountsById(this.fusionSourceId)
-        this.fusionAccountsByNativeIdentity = new Map(
-            this._fusionAccounts.map((account) => [account.nativeIdentity!, account])
-        )
-        this.fusionAccountsByName = new Map(this._fusionAccounts.map((account) => [account.name!, account]))
-        this.log.debug(`Fetched ${this._fusionAccounts.length} fusion account(s)`)
+        const accounts = await this.fetchSourceAccountsById(this.fusionSourceId)
+        this.fusionAccountsByNativeIdentity = new Map(accounts.map((account) => [account.nativeIdentity!, account]))
+        this.log.debug(`Fetched ${this.fusionAccountsByNativeIdentity.size} fusion account(s)`)
     }
 
     /**
@@ -212,25 +256,14 @@ export class SourceService {
      */
     public async fetchManagedAccounts(): Promise<void> {
         this.log.debug(`Fetching managed accounts from ${this.managedSources.length} source(s)`)
-        this.managedAccounts = (
-            await Promise.all(this.managedSources.map((s) => this.fetchSourceAccountsById(s.id)))
-        ).flat()
-        this.managedAccountsById = new Map(this.managedAccounts.map((account) => [account.id!, account]))
-        this.managedAccountsByName = new Map(this.managedAccounts.map((account) => [account.name!, account]))
-        this.log.debug(`Fetched ${this.managedAccounts.length} managed account(s)`)
+        const accounts = (await Promise.all(this.managedSources.map((s) => this.fetchSourceAccountsById(s.id)))).flat()
+        this.managedAccountsById = new Map(accounts.map((account) => [account.id!, account]))
+        this.log.debug(`Fetched ${this.managedAccountsById.size} managed account(s)`)
     }
 
-    private async fetchAccountById(id: string): Promise<Account | undefined> {
-        const { accountsApi } = this.client
-        const requestParameters: AccountsApiGetAccountRequest = {
-            id,
-        }
-        const getAccount = async () => {
-            return await accountsApi.getAccount(requestParameters)
-        }
-        const response = await this.client.execute(getAccount)
-        return response.data ?? undefined
-    }
+    // ------------------------------------------------------------------------
+    // Public Account Fetch Methods (Single)
+    // ------------------------------------------------------------------------
 
     /**
      * Fetch and cache a single fusion account by nativeIdentity
@@ -239,43 +272,25 @@ export class SourceService {
         this.log.debug('Fetching fusion account')
         const fusionAccount = await this.fetchSourceAccountByNativeIdentity(this.fusionSourceId, nativeIdentity)
         assert(fusionAccount, 'Fusion account not found')
-        if (!this._fusionAccounts) {
-            this._fusionAccounts = []
-        }
-        this._fusionAccounts.push(fusionAccount)
 
         if (!this.fusionAccountsByNativeIdentity) {
             this.fusionAccountsByNativeIdentity = new Map()
         }
         this.fusionAccountsByNativeIdentity.set(fusionAccount.nativeIdentity!, fusionAccount)
-
-        if (!this.fusionAccountsByName) {
-            this.fusionAccountsByName = new Map()
-        }
-        this.fusionAccountsByName.set(fusionAccount.name!, fusionAccount)
         this.log.debug(`Fetched fusion account: ${fusionAccount.name}`)
     }
 
     /**
-     * Fetch and cache a single managed account by nativeIdentity
+     * Fetch and cache a single managed account by ID
      */
     public async fetchManagedAccount(id: string): Promise<void> {
         const managedAccount = await this.fetchAccountById(id)
         assert(managedAccount, 'Managed account not found')
-        if (!this.managedAccounts) {
-            this.managedAccounts = []
-        }
-        this.managedAccounts.push(managedAccount)
 
         if (!this.managedAccountsById) {
             this.managedAccountsById = new Map()
         }
         this.managedAccountsById.set(managedAccount.id!, managedAccount)
-
-        if (!this.managedAccountsByName) {
-            this.managedAccountsByName = new Map()
-        }
-        this.managedAccountsByName.set(managedAccount.name!, managedAccount)
     }
 
     /**
@@ -310,6 +325,46 @@ export class SourceService {
         return accounts[0]
     }
 
+    // ------------------------------------------------------------------------
+    // Public Aggregation Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Aggregate a source
+     */
+    public async aggregateSourceAccounts(sourceId: string): Promise<void> {
+        await this.aggregateAccounts(sourceId)
+    }
+
+    /**
+     * Aggregate all managed sources that need aggregation
+     */
+    public async aggregateManagedSources(): Promise<void> {
+        const managedSources = this.managedSources
+        this.log.debug(`Checking aggregation status for ${managedSources.length} managed source(s)`)
+        const aggregationPromises = []
+        for (const source of managedSources) {
+            const sourceConfig = source.config
+            const forceAggregation = sourceConfig?.forceAggregation ?? false
+
+            if (!forceAggregation) {
+                this.log.debug(`Force aggregation is disabled for source ${source.name}, skipping`)
+                continue
+            }
+
+            const shouldAggregate = await this.shouldAggregateSource(source)
+            if (shouldAggregate) {
+                this.log.info(`Aggregating source: ${source.name}`)
+                aggregationPromises.push(this.aggregateSourceAccounts(source.id))
+            } else {
+                this.log.debug(`Source ${source.name} does not need aggregation`)
+            }
+        }
+
+        await Promise.all(aggregationPromises)
+        this.log.debug('Source aggregation completed')
+    }
+
     /**
      * Get latest aggregation date for a source (only for managed sources)
      */
@@ -339,6 +394,61 @@ export class SourceService {
         return latestAggregation
     }
 
+    // ------------------------------------------------------------------------
+    // Public Schema Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * List schemas for a source
+     */
+    public async listSourceSchemas(sourceId: string): Promise<Schema[]> {
+        const { sourcesApi } = this.client
+        const requestParameters: SourcesApiGetSourceSchemasRequest = {
+            sourceId,
+        }
+        const getSourceSchemas = async () => {
+            const response = await sourcesApi.getSourceSchemas(requestParameters)
+            return response.data ?? []
+        }
+        const response = await this.client.execute(getSourceSchemas)
+        return response
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Configuration Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Update source configuration
+     */
+    public async patchSourceConfig(id: string, requestParameters: SourcesApiUpdateSourceRequest): Promise<Source> {
+        const { sourcesApi } = this.client
+        const updateSource = async () => {
+            const response = await sourcesApi.updateSource(requestParameters)
+            return response.data
+        }
+        return await this.client.execute(updateSource)
+    }
+
+    // ------------------------------------------------------------------------
+    // Private Helper Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Fetch a single account by ID
+     */
+    private async fetchAccountById(id: string): Promise<Account | undefined> {
+        const { accountsApi } = this.client
+        const requestParameters: AccountsApiGetAccountRequest = {
+            id,
+        }
+        const getAccount = async () => {
+            return await accountsApi.getAccount(requestParameters)
+        }
+        const response = await this.client.execute(getAccount)
+        return response.data ?? undefined
+    }
+
     /**
      * Check if a managed source should be aggregated based on fusion aggregation date
      */
@@ -353,12 +463,8 @@ export class SourceService {
     }
 
     /**
-     * Aggregate a source
+     * Aggregate accounts for a source
      */
-    public async aggregateSourceAccounts(sourceId: string): Promise<void> {
-        await this.aggregateAccounts(sourceId)
-    }
-
     private async aggregateAccounts(id: string): Promise<void> {
         let completed = false
         const { sourcesV2025Api, taskManagementApi } = this.client
@@ -372,8 +478,8 @@ export class SourceService {
         const response = await this.client.execute(importAccounts)
 
         // Use global retry settings for aggregation task polling
-        const taskResultRetries = this.config.taskResultRetries
-        const taskResultWait = this.config.taskResultWait
+        const taskResultRetries = this.taskResultRetries
+        const taskResultWait = this.taskResultWait
 
         let count = taskResultRetries
         while (--count > 0) {
@@ -394,53 +500,5 @@ export class SourceService {
             }
         }
         softAssert(completed, 'Failed to aggregate managed accounts')
-    }
-
-    public async listSourceSchemas(sourceId: string): Promise<Schema[]> {
-        const { sourcesApi } = this.client
-        const requestParameters: SourcesApiGetSourceSchemasRequest = {
-            sourceId,
-        }
-        const getSourceSchemas = async () => {
-            const response = await sourcesApi.getSourceSchemas(requestParameters)
-            return response.data ?? []
-        }
-        const response = await this.client.execute(getSourceSchemas)
-        return response
-    }
-
-    public async aggregateManagedSources(): Promise<void> {
-        const managedSources = this.managedSources
-        this.log.debug(`Checking aggregation status for ${managedSources.length} managed source(s)`)
-        const aggregationPromises = []
-        for (const source of managedSources) {
-            const sourceConfig = source.config
-            const forceAggregation = sourceConfig?.forceAggregation ?? false
-
-            if (!forceAggregation) {
-                this.log.debug(`Force aggregation is disabled for source ${source.name}, skipping`)
-                continue
-            }
-
-            const shouldAggregate = await this.shouldAggregateSource(source)
-            if (shouldAggregate) {
-                this.log.info(`Aggregating source: ${source.name}`)
-                aggregationPromises.push(this.aggregateSourceAccounts(source.id))
-            } else {
-                this.log.debug(`Source ${source.name} does not need aggregation`)
-            }
-        }
-
-        await Promise.all(aggregationPromises)
-        this.log.debug('Source aggregation completed')
-    }
-
-    public async patchSourceConfig(id: string, requestParameters: SourcesApiUpdateSourceRequest): Promise<Source> {
-        const { sourcesApi } = this.client
-        const updateSource = async () => {
-            const response = await sourcesApi.updateSource(requestParameters)
-            return response.data
-        }
-        return await this.client.execute(updateSource)
     }
 }
