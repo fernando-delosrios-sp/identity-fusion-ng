@@ -1,5 +1,10 @@
-import { Response, StdAccountCreateInput, StdAccountCreateOutput } from '@sailpoint/connector-sdk'
+import { AttributeChangeOp, Response, StdAccountCreateInput, StdAccountCreateOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
+import { assert } from '../utils/assert'
+import { resetAction } from './actions/resetAction'
+import { reportAction } from './actions/reportAction'
+import { fusionAction } from './actions/fusionAction'
+import { correlateAction } from './actions/correlateAction'
 
 export const accountCreate = async (
     serviceRegistry: ServiceRegistry,
@@ -7,16 +12,62 @@ export const accountCreate = async (
     res: Response<StdAccountCreateOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log } = serviceRegistry
+    const { log, identities, sources, schemas, fusion, attributes } = serviceRegistry
 
+    let identityName = input.attributes.name ?? input.identity
     try {
-        log.info(`Creating account ${input.attributes.name ?? input.identity}...`)
+        assert(input.identity, 'Account identity is required')
+        assert(input.schema, 'Account schema is required')
 
-        // TODO: Implement account creation logic
+        await sources.fetchAllSources()
+        await schemas.setFusionAccountSchema(input.schema)
+        const { fusionDisplayAttribute } = schemas
+        assert(fusionDisplayAttribute, 'Fusion display attribute not found in schema')
 
-        log.info(`Account ${input.attributes.name ?? input.identity} creation completed`)
+        identityName = input.attributes[fusionDisplayAttribute] ?? identityName
+        assert(identityName, 'Identity name is required for account creation')
+
+        log.info(`Creating account ${identityName}...`)
+
+        await sources.fetchFusionAccounts()
+        await attributes.initializeCounters()
+        await fusion.preProcessFusionAccounts()
+        const identity = await identities.fetchIdentityByName(identityName)
+        assert(identity, `Identity not found: ${identityName}`)
+        assert(identity.id, `Identity ID is missing for: ${identityName}`)
+
+        const fusionIdentity = fusion.getFusionIdentity(identity.id)
+        assert(fusionIdentity, `Fusion identity not found for identity ID: ${identity.id}`)
+
+        const actions = [...(input.attributes.actions ?? [])]
+        log.debug(`Processing ${actions.length} action(s) for account creation`)
+
+        for (const action of actions) {
+            log.debug(`Processing action: ${action}`)
+            switch (action) {
+                case 'reset':
+                    await resetAction(fusionIdentity, AttributeChangeOp.Add)
+                    break
+                case 'report':
+                    await reportAction(fusionIdentity, AttributeChangeOp.Add)
+                    break
+                case 'fusion':
+                    await fusionAction(fusionIdentity, AttributeChangeOp.Add)
+                    break
+                case 'correlate':
+                    await correlateAction(fusionIdentity, AttributeChangeOp.Add)
+                    break
+                default:
+                    log.crash(`Unsupported action: ${action}`)
+            }
+        }
+
+        const iscAccount = fusion.getISCAccount(fusionIdentity)
+        assert(iscAccount, 'Failed to generate ISC account from fusion identity')
+
+        res.send(iscAccount)
+        log.info(`Account ${identityName} creation completed successfully`)
     } catch (error) {
-        log.crash(`Failed to create account ${input.attributes.name ?? input.identity}`, error)
+        log.crash(`Failed to create account ${identityName}`, error)
     }
 }
-

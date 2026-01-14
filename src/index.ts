@@ -51,7 +51,7 @@ export const connector = async () => {
     const stdAccountList: StdAccountListHandler = async (context, input, res): Promise<void> => {
         const interval = setInterval(() => {
             res.keepAlive()
-        }, config.processingWaitConstant)
+        }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
@@ -107,7 +107,7 @@ export const connector = async () => {
     const stdAccountUpdate: StdAccountUpdateHandler = async (context, input, res) => {
         const interval = setInterval(() => {
             res.keepAlive()
-        }, config.processingWaitConstant)
+        }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)

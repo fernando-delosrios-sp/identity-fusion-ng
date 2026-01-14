@@ -3,6 +3,7 @@ import { FusionConfig } from '../model/config'
 import { ClientService } from './clientService'
 import { LogService } from './logService'
 import { assert } from '../utils/assert'
+import { FusionAccount } from '../model/account'
 
 // ============================================================================
 // IdentityService Class
@@ -74,7 +75,7 @@ export class IdentityService {
     /**
      * Fetch a single identity by ID and cache it
      */
-    public async fetchIdentityById(id: string): Promise<void> {
+    public async fetchIdentityById(id: string): Promise<IdentityDocument> {
         this.log.info(`Fetching identity ${id}.`)
 
         //TODO: only fetch relevant attributes
@@ -82,13 +83,37 @@ export class IdentityService {
         const query: Search = {
             indices: ['identities'],
             query: {
-                query: `id:${id}`,
+                query: `id.exact:"${id}"`,
             },
             includeNested: true,
         }
 
         const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
-        this.identitiesById = new Map(identities.map((identity) => [identity.id, identity]))
+        identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
+
+        return identities[0]
+    }
+
+    /**
+     * Fetch a single identity by ID and cache it
+     */
+    public async fetchIdentityByName(name: string): Promise<IdentityDocument> {
+        this.log.info(`Fetching identity ${name}.`)
+
+        //TODO: only fetch relevant attributes
+
+        const query: Search = {
+            indices: ['identities'],
+            query: {
+                query: `name.exact:"${name}"`,
+            },
+            includeNested: true,
+        }
+
+        const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+        identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
+
+        return identities[0]
     }
 
     // ------------------------------------------------------------------------
@@ -111,26 +136,34 @@ export class IdentityService {
     /**
      * Correlate an account to an identity
      */
-    public async correlateAccount(accountId: string, identityId: string): Promise<boolean> {
+    public async correlateAccounts(fusionAccount: FusionAccount): Promise<boolean> {
+        const { missingAccountIds, identityId } = fusionAccount
         const { accountsApi } = this.client
 
-        const requestParameters: AccountsApiUpdateAccountRequest = {
-            id: accountId,
-            requestBody: [
-                {
-                    op: 'replace',
-                    path: '/identityId',
-                    value: identityId,
-                },
-            ],
-        }
+        await Promise.all(
+            missingAccountIds.map(async (accountId) => {
+                const requestParameters: AccountsApiUpdateAccountRequest = {
+                    id: accountId,
+                    requestBody: [
+                        {
+                            op: 'replace',
+                            path: '/identityId',
+                            value: identityId,
+                        },
+                    ],
+                }
 
-        const updateAccount = async () => {
-            return await accountsApi.updateAccount(requestParameters)
-        }
+                const updateAccount = async () => {
+                    return await accountsApi.updateAccount(requestParameters)
+                }
 
-        //TODO: handle response
-        await this.client.execute(updateAccount)
+                //TODO: handle response
+                const response = this.client.execute(updateAccount)
+                fusionAccount.setCorrelatedAccount(accountId, response)
+                await Promise.resolve(response)
+            })
+        )
+
         return true
     }
 

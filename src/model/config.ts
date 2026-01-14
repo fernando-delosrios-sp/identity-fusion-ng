@@ -1,5 +1,3 @@
-import { SourceManagementWorkgroup } from 'sailpoint-api-client'
-
 export interface BaseConfig {
     beforeProvisioningRule: string | null
     cloudCacheUpdate: number
@@ -14,7 +12,6 @@ export interface BaseConfig {
     healthy: boolean
     idnProxyType: string
     invocationId: string
-    managementWorkgroup: SourceManagementWorkgroup | null
     since: string
     sourceDescription: string
     spConnectorInstanceId: string
@@ -154,6 +151,7 @@ export interface MatchingSettingsSection {
 export interface ReviewSettingsSection {
     fusionFormAttributes?: string[]
     fusionFormExpirationDays: number
+    fusionOwnerIsGlobalReviewer?: boolean
     fusionReportOnAggregation?: boolean
 }
 
@@ -252,7 +250,6 @@ export interface InternalConfig {
     readonly identityNotFoundRetries: number
     readonly separator: string
     readonly fusionFormNamePattern: string
-    readonly editFormNamePattern: string
     readonly reservedAttributes: readonly string[]
     readonly nonAggregableTypes: readonly string[]
     readonly pageSize: number

@@ -1,51 +1,7 @@
 import { logger } from '@sailpoint/connector-sdk'
-import axiosRetry from 'axios-retry'
-
-/**
- * Priority levels for queue items
- */
-export enum QueuePriority {
-    LOW = 0,
-    NORMAL = 1,
-    HIGH = 2,
-    URGENT = 3,
-}
-
-/**
- * Queue item interface
- */
-export interface QueueItem<T = any> {
-    id: string
-    priority: QueuePriority
-    execute: () => Promise<T>
-    resolve: (value: T) => void
-    reject: (error: any) => void
-    retryCount: number
-    maxRetries: number
-    createdAt: number
-}
-
-/**
- * Queue statistics
- */
-export interface QueueStats {
-    totalProcessed: number
-    totalFailed: number
-    totalRetries: number
-    averageWaitTime: number
-    averageProcessingTime: number
-    queueLength: number
-    activeRequests: number
-}
-
-/**
- * Configuration for the API queue
- */
-export interface QueueConfig {
-    requestsPerSecond: number
-    maxConcurrentRequests: number
-    maxRetries: number
-}
+import { QueueItem, QueueStats, QueueConfig, QueuePriority } from './types'
+import { shouldRetry, calculateRetryDelay } from './helpers'
+import { MAX_STATS_SAMPLES, QUEUE_PROCESSING_INTERVAL_MS } from './constants'
 
 /**
  * Advanced API call queue manager with throttling, retry, and concurrency control.
@@ -146,7 +102,7 @@ export class ApiQueue {
 
         // Continue processing if there are items in queue and capacity available
         if (this.queue.length > 0 && this.activeRequests < this.config.maxConcurrentRequests) {
-            setTimeout(() => this.processQueue(), 10)
+            setTimeout(() => this.processQueue(), QUEUE_PROCESSING_INTERVAL_MS)
         }
     }
 
@@ -159,7 +115,7 @@ export class ApiQueue {
 
         const waitTime = Date.now() - item.createdAt
         this.waitTimes.push(waitTime)
-        if (this.waitTimes.length > 1000) {
+        if (this.waitTimes.length > MAX_STATS_SAMPLES) {
             this.waitTimes.shift()
         }
 
@@ -176,7 +132,7 @@ export class ApiQueue {
             const result = await item.execute()
             const processingTime = Date.now() - startTime
             this.processingTimes.push(processingTime)
-            if (this.processingTimes.length > 1000) {
+            if (this.processingTimes.length > MAX_STATS_SAMPLES) {
                 this.processingTimes.shift()
             }
 
@@ -186,17 +142,17 @@ export class ApiQueue {
         } catch (error: any) {
             const processingTime = Date.now() - startTime
             this.processingTimes.push(processingTime)
-            if (this.processingTimes.length > 1000) {
+            if (this.processingTimes.length > MAX_STATS_SAMPLES) {
                 this.processingTimes.shift()
             }
 
             // Check if we should retry
-            if (this.shouldRetry(error) && item.retryCount < item.maxRetries) {
+            if (shouldRetry(error) && item.retryCount < item.maxRetries) {
                 item.retryCount++
                 this.stats.totalRetries++
                 this.updateStats()
 
-                const delay = this.calculateRetryDelay(item.retryCount, error)
+                const delay = calculateRetryDelay(item.retryCount, error)
                 logger.debug(
                     `Retrying request [${item.id}] (attempt ${item.retryCount}/${item.maxRetries}) after ${delay}ms`
                 )
@@ -223,64 +179,6 @@ export class ApiQueue {
             // Continue processing
             setTimeout(() => this.processQueue(), 0)
         }
-    }
-
-    /**
-     * Determine if an error should trigger a retry
-     */
-    private shouldRetry(error: any): boolean {
-        if (!error) return false
-
-        // Network errors
-        if (axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)) {
-            return true
-        }
-
-        // Rate limiting
-        if (error.response?.status === 429) {
-            return true
-        }
-
-        // Server errors (5xx)
-        if (error.response?.status >= 500 && error.response?.status < 600) {
-            return true
-        }
-
-        // Timeout errors
-        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-            return true
-        }
-
-        return false
-    }
-
-    /**
-     * Calculate retry delay with exponential backoff and respect for retry-after headers.
-     * For 429 responses, uses the retry-after header with jitter.
-     * For other retryable errors, uses exponential backoff with a sensible base delay.
-     */
-    private calculateRetryDelay(retryCount: number, error: any): number {
-        // If 429, check for retry-after header and add jitter
-        if (error.response?.status === 429) {
-            const retryAfter = error.response.headers['retry-after']
-            if (retryAfter) {
-                const delay = parseInt(retryAfter, 10)
-                if (!isNaN(delay)) {
-                    const baseDelay = delay * 1000 // Convert to milliseconds
-                    // Add up to 10% jitter to prevent thundering herd
-                    const jitter = Math.random() * 0.1 * baseDelay
-                    return baseDelay + jitter
-                }
-            }
-        }
-
-        // Exponential backoff for other retryable errors: baseDelay * 2^retryCount, with jitter
-        const baseDelay = 1000 // 1 second base delay (sensible default)
-        const exponentialDelay = baseDelay * Math.pow(2, retryCount - 1)
-        const jitter = Math.random() * 0.3 * exponentialDelay // Add up to 30% jitter
-        const maxDelay = 60000 // Cap at 60 seconds
-
-        return Math.min(exponentialDelay + jitter, maxDelay)
     }
 
     /**

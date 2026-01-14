@@ -2,7 +2,7 @@ import { transliterate } from 'transliteration'
 import velocityjs from 'velocityjs'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import * as Datefns from 'date-fns'
-import { LogService } from '../services/logService'
+import { LogService } from '../logService'
 
 /**
  * Normalize string by transliterating and removing special characters

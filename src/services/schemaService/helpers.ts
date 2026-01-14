@@ -1,15 +1,15 @@
-import { AttributeDefinition as ApiAttributeDefinition, Schema } from 'sailpoint-api-client'
+import { AttributeDefinitionV2025, SchemaV2025 } from 'sailpoint-api-client'
 import { AccountSchema, SchemaAttribute } from '@sailpoint/connector-sdk'
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-export const isAccountSchema = (schema: Schema): boolean => {
+export const isAccountSchema = (schema: SchemaV2025): boolean => {
     return schema.nativeObjectType === 'User' || schema.nativeObjectType === 'account' || schema.name === 'account'
 }
 
-export const attributeDefinitionToSchemaAttribute = (attributeDefinition: ApiAttributeDefinition): SchemaAttribute => {
+export const attributeDefinitionToSchemaAttribute = (attributeDefinition: AttributeDefinitionV2025): SchemaAttribute => {
     return {
         name: attributeDefinition.name ?? '',
         description: attributeDefinition.description ?? '',
@@ -19,7 +19,7 @@ export const attributeDefinitionToSchemaAttribute = (attributeDefinition: ApiAtt
     }
 }
 
-export const apiSchemaToAccountSchema = (apiSchema: Schema): AccountSchema => {
+export const apiSchemaToAccountSchema = (apiSchema: SchemaV2025): AccountSchema => {
     const attributes = (apiSchema.attributes ?? []).map((x) => attributeDefinitionToSchemaAttribute(x))
     const accountSchema: AccountSchema = {
         displayAttribute: apiSchema.displayAttribute!,

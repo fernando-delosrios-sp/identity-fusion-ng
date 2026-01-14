@@ -25,18 +25,17 @@ export class FusionAccount {
 
     public history: string[] = []
 
-    public accountIds: Set<string> = new Set()
-    public missingAccountIds: Set<string> = new Set()
-
     public email?: string
     public name?: string
     public displayName?: string
     public sourceName = ''
 
-    public statuses: Set<string> = new Set()
-    public actions: Set<string> = new Set()
-    public reviews: Set<string> = new Set()
-    public sources: Set<string> = new Set()
+    private _accountIds: Set<string> = new Set()
+    private _missingAccountIds: Set<string> = new Set()
+    private _statuses: Set<string> = new Set()
+    private _actions: Set<string> = new Set()
+    private _reviews: Set<string> = new Set()
+    private _sources: Set<string> = new Set()
 
     public fusionMatches: FusionMatch[] = []
 
@@ -81,6 +80,30 @@ export class FusionAccount {
         return this._type
     }
 
+    public get accountIds(): string[] {
+        return Array.from(this._accountIds)
+    }
+
+    public get missingAccountIds(): string[] {
+        return Array.from(this._missingAccountIds)
+    }
+
+    public get statuses(): string[] {
+        return Array.from(this._statuses)
+    }
+
+    public get actions(): string[] {
+        return Array.from(this._actions)
+    }
+
+    public get reviews(): string[] {
+        return Array.from(this._reviews)
+    }
+
+    public get sources(): string[] {
+        return Array.from(this._sources)
+    }
+
     public get attributeBag(): AttributeBag {
         return this._attributeBag
     }
@@ -91,6 +114,88 @@ export class FusionAccount {
 
     public get identityId(): string {
         return this._identityId
+    }
+
+    // ------------------------------------------------------------------------
+    // Set mutation helpers with optional history messages
+    // ------------------------------------------------------------------------
+
+    public addAccountId(id: string, message?: string): void {
+        this._accountIds.add(id)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    public removeAccountId(id: string, message?: string): void {
+        if (this._accountIds.delete(id) && message) {
+            this.addHistory(message)
+        }
+    }
+
+    public addMissingAccountId(id: string, message?: string): void {
+        this._missingAccountIds.add(id)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    public removeMissingAccountId(id: string, message?: string): void {
+        if (this._missingAccountIds.delete(id) && message) {
+            this.addHistory(message)
+        }
+    }
+
+    public addStatus(status: string, message?: string): void {
+        this._statuses.add(status)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    public removeStatus(status: string, message?: string): void {
+        if (this._statuses.delete(status) && message) {
+            this.addHistory(message)
+        }
+    }
+
+    public addAction(action: string, message?: string): void {
+        this._actions.add(action)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    public removeAction(action: string, message?: string): void {
+        if (this._actions.delete(action) && message) {
+            this.addHistory(message)
+        }
+    }
+
+    public addReview(review: string, message?: string): void {
+        this._reviews.add(review)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    public removeReview(review: string, message?: string): void {
+        if (this._reviews.delete(review) && message) {
+            this.addHistory(message)
+        }
+    }
+
+    public addSource(source: string, message?: string): void {
+        this._sources.add(source)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    public removeSource(source: string, message?: string): void {
+        if (this._sources.delete(source) && message) {
+            this.addHistory(message)
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -119,8 +224,9 @@ export class FusionAccount {
         fusionAccount.displayName = fusionAccount.name
         fusionAccount._modified = getDateFromISOString(account.modified)
         fusionAccount.disabled = account.disabled ?? false
-        fusionAccount.statuses = new Set((account.attributes?.statuses as string[]) || [])
-        fusionAccount.actions = new Set((account.attributes?.actions as string[]) || [])
+        fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
+        fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
+        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
         fusionAccount.history = account.attributes?.history ?? []
         fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
         fusionAccount._attributeBag.previous = account.attributes ?? {}
@@ -129,8 +235,8 @@ export class FusionAccount {
         fusionAccount._identityId = account.identityId ?? ''
         fusionAccount.sourceName = config.cloudDisplayName ?? ''
 
-        if (fusionAccount.statuses.has('baseline')) {
-            fusionAccount.sources.add('Identities')
+        if (fusionAccount._statuses.has('baseline')) {
+            fusionAccount._sources.add('Identities')
         }
 
         return fusionAccount
@@ -150,7 +256,7 @@ export class FusionAccount {
         fusionAccount._identityId = identity.id ?? ''
         fusionAccount._attributeBag.previous = identity.attributes ?? {}
         fusionAccount.sourceName = 'Identities'
-        fusionAccount.sources.add('Identities')
+        fusionAccount._sources.add('Identities')
         fusionAccount.setBaseline()
 
         return fusionAccount
@@ -186,7 +292,7 @@ export class FusionAccount {
         fusionAccount.name = account.name ?? ''
         fusionAccount._previousAccountIds.add(account.id!)
         fusionAccount.setManagedAccount(account)
-        fusionAccount.sources.add(account.sourceName!)
+        fusionAccount._sources.add(account.sourceName!)
         fusionAccount.setUnmatched()
 
         return fusionAccount
@@ -201,7 +307,7 @@ export class FusionAccount {
         const sourceNames = this.sourceConfigs.map((sc) => sc.name)
         identity.accounts?.forEach((account) => {
             if (sourceNames.includes(account.source?.name ?? '')) {
-                this.setCorrelatedAccount(account.id)
+                this.setCorrelatedAccount(account.id!)
             }
         })
     }
@@ -231,11 +337,11 @@ export class FusionAccount {
             }
         }
 
-        if (this.accountIds.size === 0 && !this.statuses.has('baseline')) {
-            this.statuses.add('orphan')
+        if (this._accountIds.size === 0 && !this._statuses.has('baseline')) {
+            this._statuses.add('orphan')
             this._needsRefresh = false
         } else {
-            this.statuses.delete('orphan')
+            this._statuses.delete('orphan')
         }
     }
 
@@ -251,18 +357,12 @@ export class FusionAccount {
         }
     }
 
-    public addEditDecisionLayer(decision?: any): void {
-        if (decision) {
-            this.statuses.add('edited')
-            this._needsRefresh = false
-            this._attributeBag.current = decision
-        }
-    }
+    // Account edition feature removed: edit decisions are no longer applied
 
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
-        if (!this.accountIds.has(accountId)) {
-            this.accountIds.add(accountId)
+        if (!this._accountIds.has(accountId)) {
+            this._accountIds.add(accountId)
             this.setUncorrelatedAccount(accountId)
         }
 
@@ -277,38 +377,41 @@ export class FusionAccount {
         if (account.sourceName) {
             const existingSourceAccounts = this._attributeBag.sources.get(account.sourceName) || []
             existingSourceAccounts.push(account.attributes ?? {})
-            this.sources.delete('Identities')
-            this.sources.add(account.sourceName)
+            this._sources.delete('Identities')
+            this._sources.add(account.sourceName)
             this._attributeBag.sources.set(account.sourceName, existingSourceAccounts)
             this._attributeBag.accounts.push(account.attributes ?? {})
         }
     }
 
-    private setCorrelatedAccount(accountId?: string): void {
-        if (!accountId) return
+    public setCorrelatedAccount(accountId: string, promise?: Promise<any>): void {
+        if (promise) {
+            this._correlationPromises.push(promise)
+            this.addHistory(`Missing account ${accountId} correlated`)
+        }
+        this._missingAccountIds.delete(accountId)
 
-        this.accountIds.add(accountId)
-        this.missingAccountIds.delete(accountId)
-
-        if (this.missingAccountIds.size === 0) {
-            this.statuses.delete('uncorrelated')
-            this.actions.add('correlated')
+        if (this._missingAccountIds.size === 0) {
+            this._statuses.delete('uncorrelated')
+            this._actions.add('correlated')
         }
     }
 
     private setUncorrelatedAccount(accountId?: string): void {
         if (!accountId) return
 
-        this.accountIds.add(accountId)
-        this.missingAccountIds.add(accountId)
+        this._accountIds.add(accountId)
+        this._missingAccountIds.add(accountId)
 
-        this.actions.delete('correlated')
-        this.statuses.add('uncorrelated')
+        this._actions.delete('correlated')
+        this._statuses.add('uncorrelated')
     }
 
-    public reviewerForSources(): string[] {
-        const sourceNames = this.sourceConfigs.map((sc) => sc.name)
-        return sourceNames.filter((source) => this.actions.has(source))
+    public listReviewerSources(): string[] {
+        const reviewerActions = Array.from(this._actions).filter((action) => action.startsWith('reviewer:'))
+        const sourceIds = reviewerActions.map((action) => action.split(':')[1])
+
+        return sourceIds
     }
 
     /**
@@ -366,36 +469,40 @@ export class FusionAccount {
     }
 
     private setEdited() {
-        this.statuses.add('edited')
+        this._statuses.add('edited')
     }
 
     private unsetEdited(message: string) {
-        this.statuses.delete('edited')
+        this._statuses.delete('edited')
         this.addHistory(message)
     }
 
     private setBaseline() {
-        this.statuses.add('baseline')
+        this._statuses.add('baseline')
         this.addHistory(`Set ${this.name} [${this.sourceName}] as baseline`)
     }
 
     private setUnmatched() {
-        this.statuses.add('unmatched')
+        this._statuses.add('unmatched')
         this.addHistory(`Set ${this.name} [${this.sourceName}] as unmatched`)
     }
 
     private setManual(decision: FusionDecision) {
-        this.statuses.add('manual')
+        this._statuses.add('manual')
         const submitterName = decision.submitter.name || decision.submitter.email
         const message = `Created by ${submitterName} from ${decision.account.name} [${decision.account.sourceName}]`
         this.addHistory(message)
     }
 
     private setAuthorized(decision: FusionDecision) {
-        this.statuses.add('authorized')
+        this._statuses.add('authorized')
         const submitterName = decision.submitter.name || decision.submitter.email
         const message = `${decision.account.name} [${decision.account.sourceName}] authorized by ${submitterName}`
         this.addHistory(message)
+    }
+
+    public setSourceReviewer(sourceId: string): void {
+        this._actions.add(`reviewer:${sourceId}`)
     }
 
     public removeSourceAccount(id: string): void {
@@ -419,17 +526,17 @@ export class FusionAccount {
     public async correlateMissingAccounts(
         fn: (accountId: string, identityId: string) => Promise<boolean>
     ): Promise<void> {
-        this.missingAccountIds.forEach(async (id) => {
+        this._missingAccountIds.forEach(async (id) => {
             this._correlationPromises.push(this.correlateMissingAccount(id, fn))
         })
     }
 
-    private async correlateMissingAccount(
+    public async correlateMissingAccount(
         accountId: string,
         fn: (accountId: string, identityId: string) => Promise<boolean>
     ): Promise<void> {
         if (await fn(accountId, this.identityId)) {
-            this.missingAccountIds.delete(accountId)
+            this._missingAccountIds.delete(accountId)
             this.addHistory(`Missing account ${accountId} correlated`)
         }
     }
@@ -441,8 +548,7 @@ export class FusionAccount {
     }
 
     public addFusionDecision(decision: string): void {
-        this.actions.add(decision)
-        this.addHistory(`Fusion decision added: ${decision}`)
+        this.addAction(decision, `Fusion decision added: ${decision}`)
     }
 
     public generateAttributes(): void {}
@@ -461,5 +567,17 @@ export class FusionAccount {
 
     public get isMatch(): boolean {
         return this._isMatch
+    }
+
+    public addFusionReview(reviewUrl: string): void {
+        this._reviews.add(reviewUrl)
+        this._statuses.add('activeReviews')
+    }
+
+    public removeFusionReview(reviewUrl: string): void {
+        this._reviews.delete(reviewUrl)
+        if (this._reviews.size === 0) {
+            this._statuses.delete('activeReviews')
+        }
     }
 }

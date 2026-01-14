@@ -3,23 +3,16 @@ import { LogService } from '../logService'
 import { FusionAccount } from '../../model/account'
 import { SchemaService } from '../schemaService'
 import { Attributes, CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType } from '@sailpoint/connector-sdk'
-import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from '../../utils/formatting'
+import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from './formatting'
 import { LockService } from '../lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { v4 as uuidv4 } from 'uuid'
 import { assert } from '../../utils/assert'
-import { SourcesApiUpdateSourceRequest } from 'sailpoint-api-client'
+import { SourcesApiUpdateSourceRequest, SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
 import { SourceService } from '../sourceService'
-import {
-    COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE,
-    FUSION_STATE_CONFIG_PATH,
-} from './constants'
+import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE, FUSION_STATE_CONFIG_PATH } from './constants'
 import { AttributeMappingConfig } from './types'
-import {
-    isUniqueAttribute,
-    processAttributeMapping,
-    buildAttributeMappingConfig,
-} from './helpers'
+import { isUniqueAttribute, processAttributeMapping, buildAttributeMappingConfig } from './helpers'
 import { StateWrapper } from './stateWrapper'
 
 // ============================================================================
@@ -77,9 +70,9 @@ export class AttributeService {
         const stateObject = await this.getStateObject()
 
         this.log.info(`Saving state object: ${JSON.stringify(stateObject)}`)
-        const requestParameters: SourcesApiUpdateSourceRequest = {
+        const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
             id: fusionSourceId,
-            jsonPatchOperation: [
+            jsonPatchOperationV2025: [
                 {
                     op: 'add',
                     path: FUSION_STATE_CONFIG_PATH,

@@ -1,14 +1,16 @@
-import { ServiceRegistry } from '../services/serviceRegistry'
-import { assert } from '../utils/assert'
-import { FusionAccount } from '../model/account'
+import { ServiceRegistry } from '../../services/serviceRegistry'
+import { assert } from '../../utils/assert'
+import { FusionAccount } from '../../model/account'
 
 export const fetchFusionAccount = async (
     nativeIdentity: string,
-    serviceRegistry: ServiceRegistry
+    serviceRegistry?: ServiceRegistry
 ): Promise<FusionAccount> => {
+    if (!serviceRegistry) {
+        serviceRegistry = ServiceRegistry.getCurrent()
+    }
     const { fusion, identities, sources } = serviceRegistry
 
-    await sources.fetchAllSources()
     await sources.fetchFusionAccount(nativeIdentity)
     const fusionAccountsMap = sources.fusionAccountsByNativeIdentity
     assert(fusionAccountsMap, 'Fusion accounts have not been loaded')

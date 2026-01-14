@@ -611,6 +611,13 @@
                             "helpKey": "Number of days before a fusion review form expires and requires resolution"
                         },
                         {
+                            "key": "fusionOwnerIsGlobalReviewer",
+                            "label": "Owner is global reviewer?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "If enabled, the owner of the fusion source will be added as a global reviewer to all fusion review forms"
+                        },
+                        {
                             "key": "fusionReportOnAggregation",
                             "label": "Send report to owner on aggregation?",
                             "type": "toggle",

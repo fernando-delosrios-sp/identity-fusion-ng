@@ -1,22 +1,23 @@
-import { ApiQueue, QueueConfig, QueuePriority, QueueStats } from '../client/queue'
-import { LogService } from './logService'
-import { FusionConfig } from '../model/config'
+import { ApiQueue } from './queue'
+import { QueueConfig, QueuePriority, QueueStats } from './types'
+import { LogService } from '../logService'
+import { FusionConfig } from '../../model/config'
 import {
     Configuration,
     Search,
     AccountsApi,
     IdentitiesV2025Api,
-    SourcesApi,
     CustomFormsV2025Api,
-    WorkflowsApi,
     EntitlementsV2025Api,
     GovernanceGroupsV2025Api,
     TaskManagementV2025Api,
     SearchApi,
     TransformsApi,
     SourcesV2025Api,
+    WorkflowsV2025Api,
 } from 'sailpoint-api-client'
-import { createRetriesConfig } from '../client/axios'
+import { createRetriesConfig } from './helpers'
+import { STATS_LOGGING_INTERVAL_MS } from './constants'
 
 /**
  * ClientService provides a lean, centralized client for API operations.
@@ -39,10 +40,9 @@ export class ClientService {
     private _accountsApi?: AccountsApi
     private _identitiesApi?: IdentitiesV2025Api
     private _searchApi?: SearchApi
-    private _sourcesApi?: SourcesApi
-    private _sourcesV2025Api?: SourcesV2025Api
-    private _formsApi?: CustomFormsV2025Api
-    private _workflowsApi?: WorkflowsApi
+    private _sourcesApi?: SourcesV2025Api
+    private _customFormsApi?: CustomFormsV2025Api
+    private _workflowsApi?: WorkflowsV2025Api
     private _entitlementsApi?: EntitlementsV2025Api
     private _transformsApi?: TransformsApi
     private _governanceGroupsApi?: GovernanceGroupsV2025Api
@@ -116,30 +116,23 @@ export class ClientService {
         return this._searchApi
     }
 
-    public get sourcesApi(): SourcesApi {
+    public get sourcesApi(): SourcesV2025Api {
         if (!this._sourcesApi) {
-            this._sourcesApi = new SourcesApi(this.config)
+            this._sourcesApi = new SourcesV2025Api(this.config)
         }
         return this._sourcesApi
     }
 
-    public get sourcesV2025Api(): SourcesV2025Api {
-        if (!this._sourcesV2025Api) {
-            this._sourcesV2025Api = new SourcesV2025Api(this.config)
+    public get customFormsApi(): CustomFormsV2025Api {
+        if (!this._customFormsApi) {
+            this._customFormsApi = new CustomFormsV2025Api(this.config)
         }
-        return this._sourcesV2025Api
+        return this._customFormsApi
     }
 
-    public get formsApi(): CustomFormsV2025Api {
-        if (!this._formsApi) {
-            this._formsApi = new CustomFormsV2025Api(this.config)
-        }
-        return this._formsApi
-    }
-
-    public get workflowsApi(): WorkflowsApi {
+    public get workflowsApi(): WorkflowsV2025Api {
         if (!this._workflowsApi) {
-            this._workflowsApi = new WorkflowsApi(this.config)
+            this._workflowsApi = new WorkflowsV2025Api(this.config)
         }
         return this._workflowsApi
     }
@@ -373,6 +366,6 @@ export class ClientService {
                         `avg process: ${stats.averageProcessingTime.toFixed(0)}ms`
                 )
             }
-        }, 30000) // Log every 30 seconds
+        }, STATS_LOGGING_INTERVAL_MS)
     }
 }

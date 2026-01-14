@@ -9,6 +9,10 @@ import {
     CustomFormsV2025ApiCreateFormDefinitionRequest,
     CustomFormsV2025ApiCreateFormInstanceRequest,
     CustomFormsV2025ApiPatchFormInstanceRequest,
+    OwnerDto,
+    FormElementV2025,
+    FormElementValidationsSetV2025,
+    FormDefinitionInputV2025,
 } from 'sailpoint-api-client'
 import { RawAxiosRequestConfig } from 'axios'
 import { FusionConfig } from '../model/config'
@@ -16,8 +20,9 @@ import { ClientService } from './clientService'
 import { LogService } from './logService'
 import { IdentityService } from './identityService'
 import { MessagingService } from './messagingService'
+import { SourceService } from './sourceService'
 import { assert } from '../utils/assert'
-import { EditDecision, FusionDecision } from '../model/form'
+import { FusionDecision } from '../model/form'
 import { FusionAccount } from '../model/account'
 
 // ============================================================================
@@ -32,14 +37,10 @@ export class FormService {
     private _formsToDelete: string[] = []
     private _fusionIdentityDecisions?: FusionDecision[]
     private _fusionAssignmentDecisionMap?: Map<string, FusionDecision>
-    private _editDecisionMap?: Map<string, EditDecision>
     private readonly fusionFormNamePattern: string
-    private readonly editFormNamePattern: string
     private readonly fusionFormExpirationDays: number
     private readonly fusionFormAttributes?: string[]
     private readonly newIdentityDecision: string
-    private readonly managementWorkgroup: FusionConfig['managementWorkgroup']
-    private readonly spConnectorInstanceId: string
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -49,16 +50,14 @@ export class FormService {
         config: FusionConfig,
         private log: LogService,
         private client: ClientService,
+        private sources: SourceService,
         private identities?: IdentityService,
         private messaging?: MessagingService
     ) {
         this.fusionFormNamePattern = config.fusionFormNamePattern
-        this.editFormNamePattern = config.editFormNamePattern
         this.fusionFormExpirationDays = config.fusionFormExpirationDays
         this.fusionFormAttributes = config.fusionFormAttributes
         this.newIdentityDecision = config.newIdentityDecision
-        this.managementWorkgroup = config.managementWorkgroup
-        this.spConnectorInstanceId = config.spConnectorInstanceId
     }
 
     // ------------------------------------------------------------------------
@@ -70,14 +69,15 @@ export class FormService {
      */
     public async fetchFormData(): Promise<void> {
         this.log.debug('Fetching form data')
+        assert(this.fusionFormNamePattern, 'Fusion form name pattern is required')
+
         this._fusionIdentityDecisions = []
         this._fusionAssignmentDecisionMap = new Map()
-        this._editDecisionMap = new Map()
 
         await this.fetchFormDataByNamePattern(this.fusionFormNamePattern, (x) => this.processFusionFormInstances(x))
-        await this.fetchFormDataByNamePattern(this.editFormNamePattern, (x) => this.processEditFormInstances(x))
 
-        this.log.debug('Form data fetch completed')
+        const fusionDecisionsCount = this._fusionIdentityDecisions?.length ?? 0
+        this.log.debug(`Form data fetch completed - ${fusionDecisionsCount} fusion decision(s)`)
     }
 
     /**
@@ -102,59 +102,84 @@ export class FormService {
         fusionAccount: FusionAccount,
         reviewers: Set<FusionAccount> | undefined
     ): Promise<void> {
+        assert(fusionAccount, 'Fusion account is required')
+
         if (!reviewers || reviewers.size === 0) {
             this.log.warn(`No reviewers found for account ${fusionAccount.name}, skipping form creation`)
             return
         }
 
-        const reviewerIds = Array.from(reviewers)
-            .map((reviewer) => reviewer.identityId)
-            .filter((id): id is string => !!id)
-
-        if (reviewerIds.length === 0) {
-            this.log.warn(`No valid reviewer identity IDs found for account ${fusionAccount.name}`)
-            return
-        }
-
+        this.log.debug(`Building fusion form for account ${fusionAccount.name} with ${reviewers.size} reviewer(s)`)
         const candidates = this.buildCandidateList(fusionAccount)
-        const formName = this.buildFormName(fusionAccount)
-        const formDefinition = await this.createFusionFormDefinition(formName)
+        assert(candidates, 'Failed to build candidate list')
 
-        if (!formDefinition.id) {
-            throw new Error('Failed to create form definition: missing ID')
+        const formName = this.buildFormName(fusionAccount)
+        assert(formName, 'Form name is required')
+
+        // Check if form definition already exists, if not create it
+        let formDefinition = await this.findFormDefinitionByName(formName)
+        if (!formDefinition) {
+            this.log.debug(`Form definition not found, creating new one: ${formName}`)
+            formDefinition = await this.buildFusionFormDefinition(formName, fusionAccount, candidates)
+            assert(formDefinition, 'Failed to create form definition')
+            assert(formDefinition.id, 'Form definition ID is required')
+        } else {
+            this.log.debug(`Using existing form definition: ${formDefinition.id}`)
         }
 
         const formInput = this.buildFormInput(fusionAccount, candidates)
+        assert(formInput, 'Form input is required')
+
         const expire = this.calculateExpirationDate()
+        assert(expire, 'Form expiration date is required')
 
-        const fusionSourceId = this.spConnectorInstanceId
-        if (!fusionSourceId) {
-            throw new Error('Fusion source ID not found in config')
-        }
+        const { fusionSourceId } = this.sources
+        assert(fusionSourceId, 'Fusion source ID is required')
 
-        const formInstance = await this.createFormInstance(
-            formDefinition.id,
-            formInput,
-            reviewerIds,
-            fusionSourceId,
-            expire
+        // Get existing form instances for this definition
+        const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
+        const existingRecipientIds = new Set(
+            existingInstances.flatMap((instance) => instance.recipients?.map((r) => r.id).filter(Boolean) || [])
         )
 
-        if (formInstance.id) {
-            fusionAccount.reviews.add(formInstance.id)
-        }
+        // Create one form instance per reviewer
+        for (const reviewer of reviewers) {
+            let hasPreviousInstance = false
+            const reviewerId = reviewer.identityId
+            if (!reviewerId) {
+                this.log.warn(`Reviewer ${reviewer.name} has no identity ID, skipping`)
+                continue
+            }
 
-        if (this.messaging && formInstance.id) {
-            try {
-                await this.messaging.sendFusionEmail(formInstance)
-            } catch (error) {
-                this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
+            // Check if form instance already exists for this reviewer
+            if (existingRecipientIds.has(reviewerId)) {
+                this.log.debug(`Form instance already exists for reviewer ${reviewerId}`)
+                hasPreviousInstance = true
+            }
+
+            const formInstance = await this.createFormInstance(
+                formDefinition.id!,
+                formInput,
+                [reviewerId],
+                fusionSourceId,
+                expire
+            )
+            assert(formInstance, 'Failed to create form instance')
+
+            if (formInstance.id) {
+                reviewer.addFusionReview(formInstance.standAloneFormUrl!)
+                this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
+
+                if (!hasPreviousInstance && this.messaging) {
+                    try {
+                        await this.messaging.sendFusionEmail(formInstance)
+                        this.log.debug(`Email notification sent for form ${formInstance.id}`)
+                    } catch (error) {
+                        this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
+                    }
+                }
             }
         }
-
-        this.log.info(
-            `Created fusion form ${formDefinition.id} for account ${fusionAccount.name} with ${reviewerIds.length} reviewer(s)`
-        )
     }
 
     /**
@@ -184,28 +209,24 @@ export class FormService {
     }
 
     /**
-     * Get edit decision for an identity ID
-     */
-    public getEditDecision(identityId: string): EditDecision | undefined {
-        assert(this._editDecisionMap, 'Edit decisions not fetched')
-        return this._editDecisionMap.get(identityId)
-    }
-
-    /**
      * Fetch form instances by definition ID
      */
     public async fetchFormInstancesByDefinitionId(formDefinitionId?: string): Promise<FormInstanceResponseV2025[]> {
-        const { formsApi } = this.client
+        const { customFormsApi } = this.client
         const axiosOptions: RawAxiosRequestConfig = {
             params: {
                 filters: `formDefinitionId eq "${formDefinitionId}"`,
             },
         }
 
-        const response = await this.client.execute(async () => {
-            return await formsApi.searchFormInstancesByTenant(axiosOptions)
-        })
-        return response.data ?? []
+        const searchFormInstancesByTenant = async () => {
+            const response = await customFormsApi.searchFormInstancesByTenant(axiosOptions)
+            return response.data ?? []
+        }
+
+        const formInstances = await this.client.execute(searchFormInstancesByTenant)
+
+        return formInstances
     }
 
     /**
@@ -215,7 +236,7 @@ export class FormService {
         formInstanceID: string,
         state: FormInstanceResponseV2025StateV2025
     ): Promise<FormInstanceResponseV2025> {
-        const { formsApi } = this.client
+        const { customFormsApi } = this.client
 
         const body: { [key: string]: any }[] = [
             {
@@ -231,12 +252,12 @@ export class FormService {
         }
 
         const patchFormInstanceState = async () => {
-            const response = await formsApi.patchFormInstance(requestParameters)
+            const response = await customFormsApi.patchFormInstance(requestParameters)
             return response.data
         }
 
-        const response = await this.client.execute(patchFormInstanceState)
-        return response
+        const formInstance = await this.client.execute(patchFormInstanceState)
+        return formInstance
     }
 
     // ------------------------------------------------------------------------
@@ -252,12 +273,22 @@ export class FormService {
         attributes: Record<string, any>
         scores: any[]
     }> {
-        return fusionAccount.fusionMatches.map((match) => ({
-            id: match.fusionIdentity.identityId,
-            name: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
-            attributes: match.fusionIdentity.attributes,
-            scores: match.scores,
-        }))
+        assert(fusionAccount, 'Fusion account is required')
+        assert(fusionAccount.fusionMatches, 'Fusion matches are required')
+
+        const candidates = fusionAccount.fusionMatches.map((match) => {
+            assert(match.fusionIdentity, 'Fusion identity is required in match')
+            assert(match.fusionIdentity.identityId, 'Fusion identity ID is required')
+            return {
+                id: match.fusionIdentity.identityId,
+                name: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
+                attributes: match.fusionIdentity.attributes || {},
+                scores: match.scores || [],
+            }
+        })
+
+        this.log.debug(`Built candidate list with ${candidates.length} candidate(s)`)
+        return candidates
     }
 
     /**
@@ -265,7 +296,7 @@ export class FormService {
      */
     private buildFormName(fusionAccount: FusionAccount): string {
         const accountName = fusionAccount.name || fusionAccount.displayName || 'Unknown'
-        return `${this.fusionFormNamePattern} - ${accountName}`
+        return `${this.fusionFormNamePattern} - ${accountName} [${fusionAccount.sourceName}]`
     }
 
     /**
@@ -280,22 +311,63 @@ export class FormService {
             scores: any[]
         }>
     ): { [key: string]: any } {
-        return {
-            account: {
-                value: fusionAccount.nativeIdentity,
-                displayName: fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity,
-                attributes: fusionAccount.attributes,
-                sourceName: fusionAccount.sourceName,
-            },
-            candidates: candidates.map((candidate) => ({
-                value: candidate.id,
-                displayName: candidate.name,
-                attributes: candidate.attributes,
-                scores: candidate.scores,
-            })),
-            identities: '',
-            comments: '',
+        const formInput: { [key: string]: any } = {}
+
+        // Account info (nested structure for processing code)
+        formInput.account = {
+            value: fusionAccount.nativeIdentity,
+            displayName: fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity,
+            attributes: fusionAccount.attributes,
+            sourceName: fusionAccount.sourceName,
         }
+
+        // Candidates (nested structure for processing code)
+        formInput.candidates = candidates.map((candidate) => ({
+            value: candidate.id,
+            displayName: candidate.name,
+            attributes: candidate.attributes,
+            scores: candidate.scores,
+        }))
+
+        // Flat keys for form elements (matches formInput schema)
+        formInput.name = fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity
+        formInput.source = fusionAccount.sourceName
+
+        // New identity attributes (flat keys for form elements)
+        if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+            this.fusionFormAttributes.forEach((attrName) => {
+                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                const attrValue = fusionAccount.attributes?.[attrName] || fusionAccount.attributes?.[attrKey] || ''
+                formInput[`newidentity.${attrKey}`] = String(attrValue)
+            })
+        }
+
+        // Candidate attributes and scores (flat keys for form elements)
+        candidates.forEach((candidate) => {
+            const candidateId = candidate.id
+
+            if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+                this.fusionFormAttributes.forEach((attrName) => {
+                    const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                    const attrValue = candidate.attributes?.[attrName] || candidate.attributes?.[attrKey] || ''
+                    formInput[`${candidateId}.${attrKey}`] = String(attrValue)
+                })
+            }
+
+            // Add score inputs
+            if (candidate.scores && candidate.scores.length > 0) {
+                candidate.scores.forEach((score: any) => {
+                    if (score.type && score.value !== undefined) {
+                        formInput[`${candidateId}.${score.type}.score`] = String(score.value)
+                        if (score.threshold !== undefined) {
+                            formInput[`${candidateId}.${score.type}.threshold`] = String(score.threshold)
+                        }
+                    }
+                })
+            }
+        })
+
+        return formInput
     }
 
     /**
@@ -333,58 +405,50 @@ export class FormService {
      * Process fusion form instances and extract decisions
      */
     private processFusionFormInstances(formInstances: FormInstanceResponseV2025[]): void {
+        assert(formInstances, 'Form instances array is required')
+
         let deleteForm = true
+        let processedCount = 0
 
         instances: for (const instance of formInstances) {
+            assert(instance, 'Form instance is required')
+            assert(instance.state, 'Form instance state is required')
+
             switch (instance.state) {
                 case 'COMPLETED':
+                    this.log.debug(`Processing completed form instance: ${instance.id}`)
                     this.addFusionDecision(instance)
-                    this.addFormToDelete(instance.formDefinitionId!)
+                    if (instance.formDefinitionId) {
+                        this.addFormToDelete(instance.formDefinitionId)
+                    }
+                    processedCount++
                     break instances
                 case 'CANCELLED':
-                    this.log.info(`Form instance ${instance.id} was cancelled.`)
+                    this.log.info(`Form instance ${instance.id} was cancelled`)
+                    processedCount++
                     break
                 default:
                     deleteForm = false
+                    this.log.debug(`Form instance ${instance.id} has state: ${instance.state}, not deleting form`)
                     break
             }
         }
 
-        if (deleteForm && formInstances.length > 0) {
-            this.addFormToDelete(formInstances[0].formDefinitionId!)
+        if (deleteForm && formInstances.length > 0 && formInstances[0].formDefinitionId) {
+            this.addFormToDelete(formInstances[0].formDefinitionId)
         }
-    }
 
-    /**
-     * Process edit form instances and extract decisions
-     */
-    private processEditFormInstances(formInstances: FormInstanceResponseV2025[]): void {
-        instances: for (const instance of formInstances) {
-            switch (instance.state) {
-                case 'COMPLETED':
-                    const editDecision = this.addEditDecision([instance])
-                    if (editDecision) {
-                        const accountId = (instance.formInput?.account as any)?.value
-                        if (accountId) {
-                            this._editDecisionMap!.set(accountId, editDecision)
-                        }
-                    }
-                    this.addFormToDelete(instance.formDefinitionId!)
-                    break instances
-                case 'CANCELLED':
-                    this.log.info(`Form instance ${instance.id} was cancelled.`)
-                    this.addFormToDelete(instance.formDefinitionId!)
-                    break instances
-                default:
-                    break
-            }
-        }
+        this.log.debug(`Processed ${processedCount} fusion form instance(s)`)
     }
 
     /**
      * Add fusion decision from completed form instance
      */
     private addFusionDecision(formInstance: FormInstanceResponseV2025): void {
+        assert(formInstance, 'Form instance is required')
+        assert(formInstance.id, 'Form instance ID is required')
+        assert(this._fusionIdentityDecisions, 'Fusion identity decisions array is not initialized')
+
         const { formData, formInput, recipients } = formInstance
 
         if (!formData || !formInput || !recipients || recipients.length === 0) {
@@ -393,6 +457,8 @@ export class FormService {
         }
 
         const account = formInput.account as any
+        assert(account, 'Account data is required in form input')
+
         const decisionValue: string = formData.identities || ''
         const reviewerIdentityId = recipients[0].id
 
@@ -414,6 +480,7 @@ export class FormService {
             return
         }
 
+        assert(this.newIdentityDecision, 'New identity decision text is required')
         const isNewIdentity = decisionValue === this.newIdentityDecision || decisionValue === ''
 
         const fusionDecision: FusionDecision = {
@@ -429,61 +496,12 @@ export class FormService {
             comments: formData.comments || '',
         }
 
-        this._fusionIdentityDecisions!.push(fusionDecision)
+        this._fusionIdentityDecisions.push(fusionDecision)
 
         this.log.debug(
             `Processed fusion decision for account ${accountNativeIdentity}, reviewer ${reviewerIdentityId}, ` +
                 `decision: ${isNewIdentity ? 'new identity' : `link to ${decisionValue}`}`
         )
-    }
-
-    /**
-     * Add edit decision from completed form instance
-     */
-    private addEditDecision(formInstances: FormInstanceResponseV2025[]): EditDecision | undefined {
-        if (formInstances.length === 0) {
-            return undefined
-        }
-
-        const formInstance = formInstances.find((inst) => inst.state === 'COMPLETED')
-        if (!formInstance) {
-            return undefined
-        }
-
-        const { formData, formInput, recipients } = formInstance
-
-        if (!formData || !formInput || !recipients || recipients.length === 0) {
-            this.log.warn(`Incomplete form instance data for edit decision: ${formInstance.id}`)
-            return undefined
-        }
-
-        const account = formInput.account as any
-        const reviewerIdentityId = recipients[0].id
-
-        if (!reviewerIdentityId) {
-            this.log.warn(`Missing reviewer identity ID in form instance: ${formInstance.id}`)
-            return undefined
-        }
-
-        const reviewer = this.getReviewerInfo(reviewerIdentityId)
-        if (!reviewer) {
-            this.log.warn(`Reviewer identity not found: ${reviewerIdentityId}`)
-            return undefined
-        }
-
-        const editDecision: EditDecision = {
-            submitter: reviewer,
-            account: {
-                id: account?.value || '',
-                name: account?.displayName || '',
-                sourceName: account?.sourceName || '',
-                attributes: formData || account?.attributes || {},
-            },
-            comments: formData.comments || '',
-        }
-
-        this.log.debug(`Processed edit decision for account ${account?.value || 'unknown'}`)
-        return editDecision
     }
 
     /**
@@ -519,8 +537,18 @@ export class FormService {
     /**
      * Create a fusion form definition with appropriate fields
      */
-    private async createFusionFormDefinition(formName: string): Promise<FormDefinitionResponseV2025> {
-        const formFields = this.buildFormFields()
+    private async buildFusionFormDefinition(
+        formName: string,
+        fusionAccount: FusionAccount,
+        candidates: Array<{
+            id: string
+            name: string
+            attributes: Record<string, any>
+            scores: any[]
+        }>
+    ): Promise<FormDefinitionResponseV2025> {
+        const formFields = this.buildFormFields(fusionAccount, candidates)
+        const formInputs = this.buildFormInputs(fusionAccount, candidates)
         const owner = this.getFormOwner()
 
         const formDefinition: CustomFormsV2025ApiCreateFormDefinitionRequest = {
@@ -530,6 +558,7 @@ export class FormService {
                     'Review potential duplicate identity and decide whether to create a new identity or link to an existing one',
                 owner,
                 formElements: formFields,
+                formInput: formInputs,
             },
         }
 
@@ -539,64 +568,302 @@ export class FormService {
     /**
      * Build form fields for fusion form definition
      */
-    private buildFormFields(): any[] {
-        const formFields: any[] = [
-            {
-                key: 'account',
-                title: 'Account',
-                type: 'object',
-                required: true,
-            },
-            {
-                key: 'candidates',
-                title: 'Potential Matches',
-                type: 'array',
-                required: false,
-            },
-            {
-                key: 'identities',
-                title: 'Decision',
-                type: 'string',
-                required: true,
-                description: `Select "${this.newIdentityDecision}" to create a new identity, or select an existing identity to link this account`,
-            },
-            {
-                key: 'comments',
-                title: 'Comments',
-                type: 'string',
-                required: false,
-            },
-        ]
+    private buildFormFields(
+        fusionAccount: FusionAccount,
+        candidates: Array<{
+            id: string
+            name: string
+            attributes: Record<string, any>
+            scores: any[]
+        }>
+    ): FormElementV2025[] {
+        const formFields: FormElementV2025[] = []
 
+        // Top section: Potential Identity Merge info
+        const topSectionElements: FormElementV2025[] = []
         if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
             this.fusionFormAttributes.forEach((attrName) => {
-                formFields.push({
-                    key: `attributes.${attrName}`,
-                    title: attrName,
-                    type: 'string',
-                    required: false,
-                    readOnly: true,
+                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                topSectionElements.push({
+                    id: attrKey,
+                    key: attrKey,
+                    elementType: 'TEXT',
+                    config: {
+                        label: this.capitalizeFirst(attrName),
+                    },
+                    validations: [],
                 })
             })
         }
+
+        if (topSectionElements.length > 0) {
+            formFields.push({
+                id: 'topSection',
+                key: 'topSection',
+                elementType: 'SECTION',
+                config: {
+                    alignment: 'CENTER',
+                    description:
+                        'Potentially duplicated identity was found. Please review the list of possible matches from existing identities and select the right one.',
+                    formElements: topSectionElements,
+                    label: `Potential Identity Merge from ${fusionAccount.sourceName}`,
+                    labelStyle: 'h2',
+                    showLabel: true,
+                },
+                validations: [],
+            })
+        }
+
+        // Identities section: SELECT dropdown
+        const selectOptions: Array<{ label: string; value: string }> = candidates.map((candidate) => ({
+            label: candidate.name,
+            value: candidate.name,
+        }))
+        selectOptions.push({
+            label: this.newIdentityDecision,
+            value: this.newIdentityDecision,
+        })
+
+        formFields.push({
+            id: 'identitiesSection',
+            key: 'identitiesSection',
+            elementType: 'SECTION',
+            config: {
+                alignment: 'CENTER',
+                formElements: [
+                    {
+                        id: 'identities',
+                        key: 'identities',
+                        elementType: 'SELECT',
+                        config: {
+                            dataSource: {
+                                config: {
+                                    options: selectOptions,
+                                },
+                                dataSourceType: 'STATIC',
+                            },
+                            forceSelect: true,
+                            label: 'Identities',
+                            maximum: 1,
+                            required: true,
+                        },
+                        validations: [
+                            {
+                                validationType: 'REQUIRED',
+                            },
+                        ] as FormElementValidationsSetV2025[],
+                    },
+                ],
+                label: 'Existing identities',
+                labelStyle: 'h3',
+                showLabel: true,
+            },
+            validations: [],
+        })
+
+        // Candidate sections: one per candidate
+        candidates.forEach((candidate) => {
+            const candidateId = candidate.id
+            const candidateElements: FormElementV2025[] = []
+
+            if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+                this.fusionFormAttributes.forEach((attrName) => {
+                    const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                    candidateElements.push({
+                        id: `${candidateId}.${attrKey}`,
+                        key: `${candidateId}.${attrKey}`,
+                        elementType: 'TEXT',
+                        config: {
+                            label: this.capitalizeFirst(attrName),
+                        },
+                        validations: [],
+                    })
+                })
+            }
+
+            // Add score section if scores exist
+            if (candidate.scores && candidate.scores.length > 0) {
+                const scoreElements: FormElementV2025[] = []
+                candidate.scores.forEach((score: any) => {
+                    if (score.type && score.value !== undefined) {
+                        scoreElements.push({
+                            id: `${candidateId}.${score.type}.score`,
+                            key: `${candidateId}.${score.type}.score`,
+                            elementType: 'TEXT',
+                            config: {
+                                label: `${this.capitalizeFirst(score.type)} score`,
+                            },
+                            validations: [],
+                        })
+                        if (score.threshold !== undefined) {
+                            scoreElements.push({
+                                id: `${candidateId}.${score.type}.threshold`,
+                                key: `${candidateId}.${score.type}.threshold`,
+                                elementType: 'TEXT',
+                                config: {
+                                    label: `${this.capitalizeFirst(score.type)} threshold`,
+                                },
+                                validations: [],
+                            })
+                        }
+                    }
+                })
+
+                if (scoreElements.length > 0) {
+                    // Group scores in a COLUMN_SET if we have multiple
+                    if (scoreElements.length >= 2) {
+                        const columns: FormElementV2025[][] = []
+                        scoreElements.forEach((elem, index) => {
+                            if (index % 2 === 0) {
+                                columns.push([elem])
+                            } else {
+                                columns[columns.length - 1].push(elem)
+                            }
+                        })
+                        candidateElements.push({
+                            id: `${candidateId}.scoreSection`,
+                            key: `${candidateId}.scoreSection`,
+                            elementType: 'COLUMN_SET',
+                            config: {
+                                alignment: 'CENTER',
+                                columnCount: 2,
+                                columns: columns,
+                                label: 'Score',
+                                labelStyle: 'h5',
+                                showLabel: true,
+                            },
+                            validations: [],
+                        })
+                    } else {
+                        candidateElements.push(...scoreElements)
+                    }
+                }
+            }
+
+            if (candidateElements.length > 0) {
+                formFields.push({
+                    id: `${candidateId}.selectionsection`,
+                    key: `${candidateId}.selectionsection`,
+                    elementType: 'SECTION',
+                    config: {
+                        alignment: 'CENTER',
+                        formElements: candidateElements,
+                        label: `${candidate.name} details`,
+                        labelStyle: 'h4',
+                        showLabel: true,
+                    },
+                    validations: [],
+                })
+            }
+        })
 
         return formFields
     }
 
     /**
-     * Get form owner from management workgroup
+     * Capitalize first letter of a string
      */
-    private getFormOwner(): { id: string; type: 'IDENTITY' } {
-        const owner = this.managementWorkgroup
-            ? {
-                  id: this.managementWorkgroup.id!,
-                  type: 'IDENTITY' as const,
-              }
-            : undefined
+    private capitalizeFirst(str: string): string {
+        return str.charAt(0).toUpperCase() + str.slice(1)
+    }
 
-        if (!owner) {
-            throw new Error('Form owner not found - management workgroup must be configured')
+    /**
+     * Build form inputs for fusion form definition
+     */
+    private buildFormInputs(
+        fusionAccount: FusionAccount,
+        candidates: Array<{
+            id: string
+            name: string
+            attributes: Record<string, any>
+            scores: any[]
+        }>
+    ): FormDefinitionInputV2025[] {
+        const formInputs: FormDefinitionInputV2025[] = []
+
+        // Account info
+        formInputs.push({
+            id: 'name',
+            type: 'STRING',
+            label: 'name',
+            description: fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity,
+        })
+        formInputs.push({
+            id: 'account',
+            type: 'STRING',
+            label: 'account',
+            description: fusionAccount.nativeIdentity,
+        })
+        formInputs.push({
+            id: 'source',
+            type: 'STRING',
+            label: 'source',
+            description: fusionAccount.sourceName,
+        })
+
+        // New identity attributes
+        if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+            this.fusionFormAttributes.forEach((attrName) => {
+                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                const attrValue = fusionAccount.attributes?.[attrName] || fusionAccount.attributes?.[attrKey] || ''
+                formInputs.push({
+                    id: `newidentity.${attrKey}`,
+                    type: 'STRING',
+                    label: `newidentity.${attrKey}`,
+                    description: String(attrValue),
+                })
+            })
         }
+
+        // Candidate attributes and scores
+        candidates.forEach((candidate) => {
+            const candidateId = candidate.id
+
+            if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+                this.fusionFormAttributes.forEach((attrName) => {
+                    const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                    const attrValue = candidate.attributes?.[attrName] || candidate.attributes?.[attrKey] || ''
+                    formInputs.push({
+                        id: `${candidateId}.${attrKey}`,
+                        type: 'STRING',
+                        label: `${candidateId}.${attrKey}`,
+                        description: String(attrValue),
+                    })
+                })
+            }
+
+            // Add score inputs
+            if (candidate.scores && candidate.scores.length > 0) {
+                candidate.scores.forEach((score: any) => {
+                    if (score.type && score.value !== undefined) {
+                        formInputs.push({
+                            id: `${candidateId}.${score.type}.score`,
+                            type: 'STRING',
+                            label: `${candidateId}.${score.type}.score`,
+                            description: String(score.value),
+                        })
+                        if (score.threshold !== undefined) {
+                            formInputs.push({
+                                id: `${candidateId}.${score.type}.threshold`,
+                                type: 'STRING',
+                                label: `${candidateId}.${score.type}.threshold`,
+                                description: String(score.threshold),
+                            })
+                        }
+                    }
+                })
+            }
+        })
+
+        return formInputs
+    }
+
+    /**
+     * Get form owner from fusion source
+     */
+    private getFormOwner(): OwnerDto {
+        const owner = this.sources.fusionSourceOwner
+        assert(owner, 'Fusion source owner not found')
 
         return owner
     }
@@ -616,21 +883,63 @@ export class FormService {
      * Fetch forms by name pattern
      */
     private async fetchFormsByName(namePattern: string): Promise<FormDefinitionResponseV2025[]> {
-        const { formsApi } = this.client
+        assert(namePattern, 'Form name pattern is required')
+        assert(this.client, 'Client service is required')
+
+        const { customFormsApi } = this.client
+        assert(customFormsApi, 'Custom forms API is required')
+
         const requestParameters: CustomFormsV2025ApiSearchFormDefinitionsByTenantRequest = {
             filters: `name sw "${namePattern}"`,
         }
 
+        this.log.debug(`Fetching forms with name pattern: ${namePattern}`)
         const searchFormDefinitionsByTenant = async (
             params: CustomFormsV2025ApiSearchFormDefinitionsByTenantRequest
         ) => {
-            const response = await formsApi.searchFormDefinitionsByTenant(params)
+            const response = await customFormsApi.searchFormDefinitionsByTenant(params)
             return {
                 data: response.data?.results ?? [],
             }
         }
 
-        return await this.client.paginate(searchFormDefinitionsByTenant, requestParameters)
+        const forms = await this.client.paginate(searchFormDefinitionsByTenant, requestParameters)
+        this.log.debug(`Found ${forms.length} form(s) matching pattern: ${namePattern}`)
+        return forms
+    }
+
+    /**
+     * Find form definition by exact name
+     */
+    private async findFormDefinitionByName(formName: string): Promise<FormDefinitionResponseV2025 | undefined> {
+        assert(formName, 'Form name is required')
+        assert(this.client, 'Client service is required')
+
+        const { customFormsApi } = this.client
+        assert(customFormsApi, 'Custom forms API is required')
+
+        const requestParameters: CustomFormsV2025ApiSearchFormDefinitionsByTenantRequest = {
+            filters: `name eq "${formName}"`,
+        }
+
+        this.log.debug(`Searching for form definition with exact name: ${formName}`)
+        const searchFormDefinitionsByTenant = async (
+            params: CustomFormsV2025ApiSearchFormDefinitionsByTenantRequest
+        ) => {
+            const response = await customFormsApi.searchFormDefinitionsByTenant(params)
+            return {
+                data: response.data?.results ?? [],
+            }
+        }
+
+        const forms = await this.client.paginate(searchFormDefinitionsByTenant, requestParameters)
+        const form = forms.find((f) => f.name === formName)
+        if (form) {
+            this.log.debug(`Found existing form definition: ${form.id}`)
+        } else {
+            this.log.debug(`No form definition found with name: ${formName}`)
+        }
+        return form
     }
 
     /**
@@ -639,13 +948,25 @@ export class FormService {
     private async createForm(
         form: CustomFormsV2025ApiCreateFormDefinitionRequest
     ): Promise<FormDefinitionResponseV2025> {
-        const { formsApi } = this.client
+        assert(form, 'Form definition request is required')
+        assert(form.body, 'Form definition body is required')
+        assert(form.body.name, 'Form name is required')
+        assert(this.client, 'Client service is required')
+
+        const { customFormsApi } = this.client
+        assert(customFormsApi, 'Custom forms API is required')
+
+        this.log.debug(`Creating form definition: ${form.body.name}`)
         const createFormDefinition = async () => {
-            const response = await formsApi.createFormDefinition(form)
+            const response = await customFormsApi.createFormDefinition(form)
             return response.data
         }
-        const response = await this.client.execute(createFormDefinition)
-        return response
+        const formInstance = await this.client.execute(createFormDefinition)
+        assert(formInstance, 'Failed to create form definition')
+        assert(formInstance.id, 'Form definition ID is missing')
+
+        this.log.debug(`Form definition created successfully: ${formInstance.id}`)
+        return formInstance
     }
 
     /**
@@ -658,8 +979,20 @@ export class FormService {
         sourceId: string,
         expire: string
     ): Promise<FormInstanceResponseV2025> {
-        const { formsApi } = this.client
+        assert(formDefinitionId, 'Form definition ID is required')
+        assert(formInput, 'Form input is required')
+        assert(recipientList, 'Recipient list is required')
+        assert(recipientList.length > 0, 'At least one recipient is required')
+        assert(sourceId, 'Source ID is required')
+        assert(expire, 'Expiration date is required')
+        assert(this.client, 'Client service is required')
 
+        const { customFormsApi } = this.client
+        assert(customFormsApi, 'Custom forms API is required')
+
+        this.log.debug(
+            `Creating form instance for definition ${formDefinitionId} with ${recipientList.length} recipient(s)`
+        )
         const recipients: FormInstanceRecipientV2025[] = recipientList.map((x) => ({ id: x, type: 'IDENTITY' }))
         const createdBy: FormInstanceCreatedByV2025 = {
             id: sourceId,
@@ -679,12 +1012,14 @@ export class FormService {
             body,
         }
 
-        const createFormInstance = async () => {
-            const response = await formsApi.createFormInstance(requestParameters)
+        const createFormInstanceCall = async () => {
+            const response = await customFormsApi.createFormInstance(requestParameters)
             return response.data
         }
 
-        const response = await this.client.execute(createFormInstance)
+        const response = await this.client.execute(createFormInstanceCall)
+        assert(response, 'Failed to create form instance')
+        this.log.debug(`Form instance created successfully: ${response.id || 'unknown'}`)
         return response
     }
 
@@ -692,10 +1027,17 @@ export class FormService {
      * Delete a form definition
      */
     private async deleteForm(formDefinitionID: string): Promise<void> {
-        const { formsApi } = this.client
+        assert(formDefinitionID, 'Form definition ID is required')
+        assert(this.client, 'Client service is required')
+
+        const { customFormsApi } = this.client
+        assert(customFormsApi, 'Custom forms API is required')
+
+        this.log.debug(`Deleting form definition: ${formDefinitionID}`)
         const deleteFormDefinition = async () => {
-            await formsApi.deleteFormDefinition({ formDefinitionID })
+            await customFormsApi.deleteFormDefinition({ formDefinitionID })
         }
         await this.client.execute(deleteFormDefinition)
+        this.log.debug(`Form definition deleted successfully: ${formDefinitionID}`)
     }
 }

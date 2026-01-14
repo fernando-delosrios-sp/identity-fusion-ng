@@ -1,15 +1,16 @@
 import {
     Search,
-    Schema,
     Account,
     AccountsApiListAccountsRequest,
-    SourcesApiGetSourceSchemasRequest,
     SearchApiSearchPostRequest,
     SourcesV2025ApiImportAccountsRequest,
     TaskManagementV2025ApiGetTaskStatusRequest,
     AccountsApiGetAccountRequest,
-    SourcesApiUpdateSourceRequest,
     Source,
+    SourcesV2025ApiUpdateSourceRequest,
+    SchemaV2025,
+    SourcesV2025ApiGetSourceSchemasRequest,
+    OwnerDto,
 } from 'sailpoint-api-client'
 import { BaseConfig, FusionConfig, SourceConfig } from '../../model/config'
 import { ClientService } from '../clientService'
@@ -31,8 +32,10 @@ export class SourceService {
     // Unified source storage - both managed and fusion sources
     private sourcesById: Map<string, SourceInfo> = new Map()
     private sourcesByName: Map<string, SourceInfo> = new Map()
-    private _allSources?: SourceInfo[]
     private fusionLatestAggregationDate: Date | undefined
+    private _allSources?: SourceInfo[]
+    private _fusionSourceId?: string
+    private _fusionSourceOwner?: OwnerDto
 
     // Account caching
     public managedAccountsById?: Map<string, Account>
@@ -67,9 +70,8 @@ export class SourceService {
      * Get fusion source ID
      */
     public get fusionSourceId(): string {
-        const fusionSource = this.getFusionSource()
-        assert(fusionSource, 'Fusion source not found')
-        return fusionSource.id
+        assert(this._fusionSourceId, 'Fusion source not found')
+        return this._fusionSourceId
     }
 
     /**
@@ -77,7 +79,7 @@ export class SourceService {
      */
     public get managedSources(): SourceInfo[] {
         assert(this._allSources, 'Sources have not been loaded')
-        return this._allSources.filter((s) => s.isManaged)
+        return this._allSources.filter((s) => s.id !== this.fusionSourceId)
     }
 
     /**
@@ -141,12 +143,18 @@ export class SourceService {
         )
         assert(fusionSource, 'Fusion source not found')
         assert(fusionSource.owner, 'Fusion source owner not found')
+        this._fusionSourceId = fusionSource.id!
+        this._fusionSourceOwner = {
+            id: fusionSource.owner.id!,
+            type: 'IDENTITY',
+        }
 
         resolvedSources.push({
             id: fusionSource.id!,
             name: fusionSource.name!,
             isManaged: false,
             config: undefined, // Fusion source has no SourceConfig
+            owner: this._fusionSourceOwner,
         })
 
         this._allSources = resolvedSources
@@ -166,6 +174,14 @@ export class SourceService {
      */
     public getFusionSource(): SourceInfo | undefined {
         return Array.from(this.sourcesById.values()).find((s) => !s.isManaged)
+    }
+
+    /**
+     * Get fusion source owner
+     */
+    public get fusionSourceOwner(): OwnerDto {
+        assert(this._fusionSourceOwner, 'Fusion source owner not found')
+        return this._fusionSourceOwner
     }
 
     /**
@@ -307,11 +323,11 @@ export class SourceService {
         }
 
         const listAccounts = async () => {
-            return await accountsApi.listAccounts(requestParameters)
+            const response = await accountsApi.listAccounts(requestParameters)
+            return response.data ?? []
         }
 
-        const response = await this.client.execute(listAccounts)
-        const accounts = response.data ?? []
+        const accounts = await this.client.execute(listAccounts)
         return accounts[0]
     }
 
@@ -377,9 +393,9 @@ export class SourceService {
             const response = await searchApi.searchPost(requestParameters)
             return response.data ?? []
         }
-        const response = await this.client.execute(searchPost)
+        const aggregations = await this.client.execute(searchPost)
 
-        const latestAggregation = getDateFromISOString(response[0]?.created)
+        const latestAggregation = getDateFromISOString(aggregations[0]?.created)
 
         return latestAggregation
     }
@@ -391,17 +407,17 @@ export class SourceService {
     /**
      * List schemas for a source
      */
-    public async listSourceSchemas(sourceId: string): Promise<Schema[]> {
+    public async listSourceSchemas(sourceId: string): Promise<SchemaV2025[]> {
         const { sourcesApi } = this.client
-        const requestParameters: SourcesApiGetSourceSchemasRequest = {
+        const requestParameters: SourcesV2025ApiGetSourceSchemasRequest = {
             sourceId,
         }
         const getSourceSchemas = async () => {
             const response = await sourcesApi.getSourceSchemas(requestParameters)
             return response.data ?? []
         }
-        const response = await this.client.execute(getSourceSchemas)
-        return response
+        const schemas = await this.client.execute(getSourceSchemas)
+        return schemas
     }
 
     // ------------------------------------------------------------------------
@@ -411,7 +427,7 @@ export class SourceService {
     /**
      * Update source configuration
      */
-    public async patchSourceConfig(id: string, requestParameters: SourcesApiUpdateSourceRequest): Promise<Source> {
+    public async patchSourceConfig(id: string, requestParameters: SourcesV2025ApiUpdateSourceRequest): Promise<Source> {
         const { sourcesApi } = this.client
         const updateSource = async () => {
             const response = await sourcesApi.updateSource(requestParameters)
@@ -433,10 +449,11 @@ export class SourceService {
             id,
         }
         const getAccount = async () => {
-            return await accountsApi.getAccount(requestParameters)
+            const response = await accountsApi.getAccount(requestParameters)
+            return response.data ?? undefined
         }
-        const response = await this.client.execute(getAccount)
-        return response.data ?? undefined
+        const account = await this.client.execute(getAccount)
+        return account
     }
 
     /**
@@ -457,15 +474,15 @@ export class SourceService {
      */
     private async aggregateAccounts(id: string): Promise<void> {
         let completed = false
-        const { sourcesV2025Api, taskManagementApi } = this.client
+        const { sourcesApi, taskManagementApi } = this.client
         const requestParameters: SourcesV2025ApiImportAccountsRequest = {
             id,
         }
         const importAccounts = async () => {
-            const response = await sourcesV2025Api.importAccounts(requestParameters)
+            const response = await sourcesApi.importAccounts(requestParameters)
             return response.data
         }
-        const response = await this.client.execute(importAccounts)
+        const loadAccountsTask = await this.client.execute(importAccounts)
 
         // Use global retry settings for aggregation task polling
         const taskResultRetries = this.taskResultRetries
@@ -474,15 +491,15 @@ export class SourceService {
         let count = taskResultRetries
         while (--count > 0) {
             const requestParameters: TaskManagementV2025ApiGetTaskStatusRequest = {
-                id: response.task?.id ?? '',
+                id: loadAccountsTask.task?.id ?? '',
             }
             const getTaskStatus = async () => {
                 const response = await taskManagementApi.getTaskStatus(requestParameters)
                 return response.data
             }
-            const result = await this.client.execute(getTaskStatus)
+            const taskStatus = await this.client.execute(getTaskStatus)
 
-            if (result.completed) {
+            if (taskStatus.completed) {
                 completed = true
                 break
             } else {

@@ -43,9 +43,11 @@ export class ServiceRegistry {
         this.scoring = context.scoringService ?? new ScoringService(this.config, this.log)
         this.identities = context.identityService ?? new IdentityService(this.config, this.log, this.client)
         this.messaging =
-            context.messagingService ?? new MessagingService(this.config, this.log, this.client, this.identities)
+            context.messagingService ??
+            new MessagingService(this.config, this.log, this.client, this.sources, this.identities)
         this.forms =
-            context.formService ?? new FormService(this.config, this.log, this.client, this.identities, this.messaging)
+            context.formService ??
+            new FormService(this.config, this.log, this.client, this.sources, this.identities, this.messaging)
 
         // Initialize services that depend on others (in dependency order)
         this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)

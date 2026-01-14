@@ -27,19 +27,9 @@ export type FusionDecision = {
     identityId?: string
     comments: string
 }
-export type EditDecision = {
-    submitter: User
-    account: Account
-    comments: string
-}
 export type FusionRequest = {
     title: string
     recipient: User
     account: Account
     candidates: Account[]
-}
-export type EditRequest = {
-    title: string
-    recipient: User
-    account: Account
 }

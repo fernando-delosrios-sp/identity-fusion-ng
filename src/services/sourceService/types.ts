@@ -1,3 +1,4 @@
+import { OwnerDto } from 'sailpoint-api-client'
 import { SourceConfig } from '../../model/config'
 
 // ============================================================================
@@ -9,4 +10,5 @@ export type SourceInfo = {
     name: string
     isManaged: boolean
     config?: SourceConfig // Only present for managed sources
+    owner?: OwnerDto // Only present for fusion source
 }
