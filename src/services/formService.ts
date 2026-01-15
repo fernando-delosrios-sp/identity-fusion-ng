@@ -115,6 +115,62 @@ export class FormService {
     }
 
     /**
+     * Populate reviews for all reviewers from all form instances
+     * This ensures reviewer accounts have all their assigned form instances in their reviews attribute
+     */
+    public async populateReviewerReviews(reviewersBySourceId: Map<string, Set<FusionAccount>>): Promise<void> {
+        this.log.debug('Populating reviews for all reviewers from form instances')
+        assert(this.fusionFormNamePattern, 'Fusion form name pattern is required')
+
+        const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
+        this.log.debug(`Found ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
+
+        // Build a map of reviewer identity IDs to reviewer accounts
+        const reviewerMap = new Map<string, FusionAccount>()
+        for (const reviewers of reviewersBySourceId.values()) {
+            for (const reviewer of reviewers) {
+                if (reviewer.identityId) {
+                    reviewerMap.set(reviewer.identityId, reviewer)
+                }
+            }
+        }
+
+        if (reviewerMap.size === 0) {
+            this.log.debug('No reviewers found, skipping review population')
+            return
+        }
+
+        // Fetch all form instances for all forms
+        let totalInstances = 0
+        let reviewsAdded = 0
+
+        await Promise.all(
+            forms.map(async (form) => {
+                const instances = await this.fetchFormInstancesByDefinitionId(form.id)
+                totalInstances += instances.length
+
+                for (const instance of instances) {
+                    if (instance.recipients && instance.standAloneFormUrl) {
+                        for (const recipient of instance.recipients) {
+                            if (recipient.id) {
+                                const reviewer = reviewerMap.get(recipient.id)
+                                if (reviewer && instance.standAloneFormUrl) {
+                                    reviewer.addFusionReview(instance.standAloneFormUrl)
+                                    reviewsAdded++
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        )
+
+        this.log.debug(
+            `Populated reviews for reviewers - processed ${totalInstances} form instance(s), added ${reviewsAdded} review(s)`
+        )
+    }
+
+    /**
      * Create a fusion form for deduplication review
      */
     public async createFusionForm(
@@ -160,6 +216,23 @@ export class FormService {
         const existingRecipientIds = new Set(
             existingInstances.flatMap((instance) => instance.recipients?.map((r) => r.id).filter(Boolean) || [])
         )
+
+        // Add existing form instances to reviewers' reviews
+        for (const instance of existingInstances) {
+            if (instance.recipients && instance.standAloneFormUrl) {
+                for (const recipient of instance.recipients) {
+                    if (recipient.id) {
+                        const reviewer = Array.from(reviewers).find((r) => r.identityId === recipient.id)
+                        if (reviewer && instance.standAloneFormUrl) {
+                            reviewer.addFusionReview(instance.standAloneFormUrl)
+                            this.log.debug(
+                                `Added existing form instance ${instance.id} to reviewer ${recipient.id} reviews`
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         // Create one form instance per reviewer
         for (const reviewer of reviewers) {
@@ -1077,6 +1150,29 @@ export class FormService {
                         }
                     }
                 })
+
+                // Disable scoreSummary TEXTAREA field
+                // Use a condition that's always true by checking newIdentity against an impossible value
+                formConditions.push({
+                    ruleOperator: 'AND',
+                    rules: [
+                        {
+                            sourceType: 'ELEMENT',
+                            source: 'newIdentity',
+                            operator: 'NE',
+                            valueType: 'STRING',
+                            value: '__NEVER_MATCH__',
+                        },
+                    ],
+                    effects: [
+                        {
+                            effectType: 'DISABLE',
+                            config: {
+                                element: `${candidateId}.scoreSummary`,
+                            },
+                        },
+                    ],
+                })
             }
         })
 
@@ -1115,7 +1211,6 @@ export class FormService {
 
         return formConditions
     }
-
 
     /**
      * Build form inputs for fusion form definition

@@ -1,6 +1,43 @@
 import { ConnectorError, ConnectorErrorType, readConfig, logger } from '@sailpoint/connector-sdk'
 import { FusionConfig, SourceConfig } from '../model/config'
-import { assert, softAssert } from '../utils/assert'
+
+/**
+ * Hard assertion - throws an error if condition is false or value is null/undefined
+ * Uses default SDK logger instead of ServiceRegistry
+ *
+ * Supports two patterns:
+ * 1. Direct value: assert(value, 'message') - narrows value to non-null/non-undefined
+ * 2. Boolean expression: assert(condition, 'message') - checks condition is true
+ */
+function assert<T>(value: T | null | undefined, message: string): asserts value is T
+function assert(condition: boolean, message: string): asserts condition
+function assert<T>(valueOrCondition: T | null | undefined | boolean, message: string): asserts valueOrCondition is T {
+    // Check for null/undefined (for direct value pattern)
+    const isNullish = valueOrCondition === null || valueOrCondition === undefined
+    // Check for false (for boolean expression pattern)
+    const isFalse = valueOrCondition === false
+
+    if (isNullish || isFalse) {
+        logger.error(`safeReadConfig: ${message}`)
+        throw new ConnectorError(message, ConnectorErrorType.Generic)
+    }
+}
+
+/**
+ * Soft assertion - logs a warning/error but doesn't throw
+ * Uses default SDK logger instead of ServiceRegistry
+ * @returns true if assertion passed, false if it failed
+ */
+function softAssert(condition: boolean, message: string, level: 'warn' | 'error' = 'warn'): condition is true {
+    if (!condition) {
+        if (level === 'error') {
+            logger.error(`safeReadConfig: ${message}`)
+        } else {
+            logger.warn(`safeReadConfig: ${message}`)
+        }
+    }
+    return condition
+}
 
 const internalConfig = {
     requestsPerSecondConstant: 100,

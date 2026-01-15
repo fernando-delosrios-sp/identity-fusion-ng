@@ -467,6 +467,15 @@ export class AttributeService {
             const counter = StateWrapper.getCounter()
             context.counter = ''
 
+            // Ensure expression includes counter variable for uniqueness
+            if (definition.expression) {
+                const hasCounter =
+                    definition.expression.includes('$counter') || definition.expression.includes('${counter}')
+                if (!hasCounter) {
+                    definition.expression = `${definition.expression}$counter`
+                }
+            }
+
             let generatedValue: string | undefined
             let isUnique = false
             let attempts = 0

@@ -30,7 +30,7 @@ export class EntitlementService {
 
         // Create source-specific reviewer entitlements
         const sourceInput = sources.map(({ id, name }) => ({
-            id: id!,
+            id: `reviewer:${id!}`,
             name: `${name} reviewer`,
             description: `Reviewer for potentially duplicated identities from ${name} source`,
         }))

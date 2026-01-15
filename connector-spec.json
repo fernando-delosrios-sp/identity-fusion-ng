@@ -462,7 +462,7 @@
                                             "parentKey": "type",
                                             "parentValue": "normal",
                                             "helpKey": "Recalculate the attribute value on every aggregation run, even if it already has a value (only available for normal attributes)"
-                                        },
+                                        }
                                     ]
                                 }
                             ]
