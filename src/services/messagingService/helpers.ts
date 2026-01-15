@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars'
 import type { TemplateDelegate as HandlebarsTemplateDelegate } from 'handlebars'
-import { FUSION_REVIEW_TEMPLATE, EDIT_REQUEST_TEMPLATE, FUSION_REPORT_TEMPLATE } from '../../model/messages'
+import { FUSION_REVIEW_TEMPLATE, FUSION_REPORT_TEMPLATE } from '../../model/messages'
 
 // ============================================================================
 // Handlebars Helpers
@@ -10,6 +10,15 @@ import { FUSION_REVIEW_TEMPLATE, EDIT_REQUEST_TEMPLATE, FUSION_REPORT_TEMPLATE }
  * Register Handlebars helpers for common operations
  */
 export const registerHandlebarsHelpers = (): void => {
+    const algorithmLabels: Record<string, string> = {
+        'name-matcher': 'Enhanced Name Matcher',
+        'jaro-winkler': 'Jaro-Winkler',
+        dice: 'Dice',
+        'double-metaphone': 'Double Metaphone',
+        custom: 'Custom Algorithm (from SaaS customizer)',
+        average: 'Average Score',
+    }
+
     // Format attribute values for display
     Handlebars.registerHelper('formatAttribute', (value: any) => {
         if (value === null || value === undefined) {
@@ -54,6 +63,32 @@ export const registerHandlebarsHelpers = (): void => {
         const d = typeof date === 'string' ? new Date(date) : date
         return d.toLocaleDateString()
     })
+
+    // Friendly algorithm names (aligned with connector-spec.json)
+    Handlebars.registerHelper('algorithmLabel', (algorithm?: string) => {
+        if (!algorithm) return 'N/A'
+        return algorithmLabels[String(algorithm)] ?? String(algorithm)
+    })
+
+    // Identify the "Average Score" rollup row
+    Handlebars.registerHelper('isAverageScoreRow', (attribute?: string, algorithm?: string) => {
+        const attr = String(attribute ?? '')
+        const alg = String(algorithm ?? '')
+        return attr === 'Average Score' || alg === 'average'
+    })
+
+    // Chunk an array into rows for table rendering
+    Handlebars.registerHelper('chunk', (arr: any[], size: any) => {
+        const n = Math.max(1, Number.parseInt(String(size), 10) || 1)
+        if (!Array.isArray(arr) || arr.length === 0) return []
+        const out: any[] = []
+        for (let i = 0; i < arr.length; i += n) {
+            const row = arr.slice(i, i + n)
+            while (row.length < n) row.push(null)
+            out.push(row)
+        }
+        return out
+    })
 }
 
 // ============================================================================
@@ -66,7 +101,6 @@ export const registerHandlebarsHelpers = (): void => {
 export const compileEmailTemplates = (): Map<string, HandlebarsTemplateDelegate> => {
     const templates = new Map<string, HandlebarsTemplateDelegate>()
     templates.set('fusion-review', Handlebars.compile(FUSION_REVIEW_TEMPLATE))
-    templates.set('edit-request', Handlebars.compile(EDIT_REQUEST_TEMPLATE))
     templates.set('fusion-report', Handlebars.compile(FUSION_REPORT_TEMPLATE))
     return templates
 }
@@ -75,17 +109,17 @@ export const compileEmailTemplates = (): Map<string, HandlebarsTemplateDelegate>
 // Template Rendering Types
 // ============================================================================
 
+/**
+ * Review email uses the same data shape as the report (single-account report),
+ * plus the standalone form URL for actioning the review.
+ */
 export type FusionReviewEmailData = {
-    accountName: string
-    accountSource: string
-    accountAttributes: Record<string, any>
-    candidates: Array<{
-        id: string
-        name: string
-        attributes: Record<string, any>
-        scores?: any[]
-    }>
+    accounts: FusionReportEmailData['accounts']
+    totalAccounts: number
+    potentialDuplicates: number
+    reportDate: Date | string
     formInstanceId?: string
+    formUrl?: string
 }
 
 export type EditRequestEmailData = {
@@ -105,6 +139,7 @@ export type FusionReportEmailData = {
         matches: Array<{
             identityName: string
             identityId?: string
+            identityUrl?: string
             isMatch: boolean
             scores?: Array<{
                 attribute: string
@@ -119,7 +154,6 @@ export type FusionReportEmailData = {
     totalAccounts: number
     potentialDuplicates: number
     reportDate: Date | string
-    accountName?: string
 }
 
 // ============================================================================

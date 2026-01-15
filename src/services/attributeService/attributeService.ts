@@ -2,13 +2,13 @@ import { FusionConfig, AttributeMap, AttributeDefinition, SourceConfig } from '.
 import { LogService } from '../logService'
 import { FusionAccount } from '../../model/account'
 import { SchemaService } from '../schemaService'
-import { Attributes, CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType } from '@sailpoint/connector-sdk'
+import { CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType } from '@sailpoint/connector-sdk'
 import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from './formatting'
 import { LockService } from '../lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { v4 as uuidv4 } from 'uuid'
 import { assert } from '../../utils/assert'
-import { SourcesApiUpdateSourceRequest, SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
+import { SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
 import { SourceService } from '../sourceService'
 import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE, FUSION_STATE_CONFIG_PATH } from './constants'
 import { AttributeMappingConfig } from './types'
@@ -93,26 +93,14 @@ export class AttributeService {
         }
         const stateWrapper = this.getStateWrapper()
 
-        // Debug: Log the state map directly before converting
         if (this.log) {
-            const directStateEntries = Array.from(stateWrapper.state.entries())
-            this.log.debug(
-                `Reading state - StateWrapper has ${stateWrapper.state.size} entries: ${JSON.stringify(Object.fromEntries(directStateEntries))}`
-            )
+            this.log.debug(`Reading state - StateWrapper has ${stateWrapper.state.size} entries`)
         }
 
         const state = stateWrapper.getState()
 
-        // Debug: Log what getState() returns
         if (this.log) {
             this.log.debug(`getState() returned: ${JSON.stringify(state)}`)
-            // Verify they match
-            const directState = Object.fromEntries(stateWrapper.state.entries())
-            if (JSON.stringify(state) !== JSON.stringify(directState)) {
-                this.log.error(
-                    `State mismatch! getState()=${JSON.stringify(state)}, direct=${JSON.stringify(directState)}`
-                )
-            }
         }
 
         return state
@@ -202,13 +190,6 @@ export class AttributeService {
             const schemaAttributes = this.schemas.listSchemaAttributeNames()
             // Process each schema attribute
             for (const attribute of schemaAttributes) {
-                // Check if there's an attribute definition with overwrite: true
-                const definition = this._attributeDefinitionConfig.find((def) => def.name === attribute)
-                // If overwrite is true, skip mapping from source accounts - generated value will overwrite it
-                if (definition?.overwrite) {
-                    continue
-                }
-
                 // Build processing configuration (merges schema with attributeMaps)
                 const processingConfig = this.attributeMappingConfig.get(attribute)!
 
@@ -233,8 +214,14 @@ export class AttributeService {
     /**
      * Refresh all attributes for a fusion account
      */
-    public async refreshAttributes(fusionAccount: FusionAccount): Promise<void> {
+    public async refreshAttributes(fusionAccount: FusionAccount, force: boolean = false): Promise<void> {
         const allDefinitions = this._attributeDefinitionConfig
+        if (force) {
+            await this.unregisterUniqueAttributes(fusionAccount)
+            allDefinitions.forEach((def) => {
+                delete fusionAccount.attributes[def.name]
+            })
+        }
         await this._refreshAttributes(fusionAccount, allDefinitions)
     }
 
@@ -267,26 +254,57 @@ export class AttributeService {
     }
 
     /**
-     * Register unique attribute values for a fusion account
+     * Process unique attribute values for a fusion account (register or unregister)
      */
-    public async registerUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        this.log.debug(`Registering unique attributes for account: ${fusionAccount.nativeIdentity}`)
+    private async processUniqueAttributes(
+        fusionAccount: FusionAccount,
+        operation: 'register' | 'unregister'
+    ): Promise<void> {
+        const logMessage = operation === 'register' ? 'Registering' : 'Unregistering'
+        this.log.debug(`${logMessage} unique attributes for account: ${fusionAccount.nativeIdentity}`)
 
-        const attributeDefinitions = this._attributeDefinitionConfig
-        const uniqueDefinitions = attributeDefinitions.filter((def) => def.type === 'unique' || def.type === 'uuid')
+        const uniqueDefinitions = this._attributeDefinitionConfig.filter(
+            (def) => def.type === 'unique' || def.type === 'uuid'
+        )
 
         for (const def of uniqueDefinitions) {
-            const value = fusionAccount.attributeBag.current[def.name]
+            const value = fusionAccount.attributes[def.name]
             if (value !== undefined && value !== null && value !== '') {
                 const valueStr = String(value)
                 const lockKey = `${def.type}:${def.name}`
                 await this.locks.withLock(lockKey, async () => {
                     const defConfig = this.getAttributeDefinition(def.name)
-                    assert(defConfig, `Attribute ${def.name} not found in attribute definition config`)
-                    defConfig.values!.add(valueStr)
+                    if (!defConfig || !defConfig.values) {
+                        return
+                    }
+                    if (operation === 'register') {
+                        assert(defConfig, `Attribute ${def.name} not found in attribute definition config`)
+                        defConfig.values.add(valueStr)
+                    } else {
+                        if (defConfig.values.delete(valueStr)) {
+                            this.log.debug(
+                                `Unregistered unique value '${valueStr}' for attribute ${def.name} (type=${def.type})`
+                            )
+                        }
+                    }
                 })
             }
         }
+    }
+
+    /**
+     * Register unique attribute values for a fusion account
+     */
+    public async registerUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
+        await this.processUniqueAttributes(fusionAccount, 'register')
+    }
+
+    /**
+     * Unregister unique attribute values for a fusion account
+     * (used when a fusion account is being removed or its unique values should no longer be reserved)
+     */
+    public async unregisterUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
+        await this.processUniqueAttributes(fusionAccount, 'unregister')
     }
 
     // ------------------------------------------------------------------------
@@ -552,27 +570,10 @@ export class AttributeService {
      * For unique/uuid attributes, the entire generation process (fetch values, generate, check, register) is protected by a lock
      */
     private async generateAttribute(definition: AttributeDefinition, fusionAccount: FusionAccount): Promise<void> {
-        // Counter attributes always generate (they maintain state across runs)
-        if (definition.type === 'counter') {
-            // Continue to generation logic below
+        const { name, refresh } = definition
+        if (fusionAccount.attributes[name] && !refresh) {
+            return
         }
-        // If overwrite is true, always generate (to overwrite existing values)
-        else if (definition.overwrite) {
-            // Continue to generation logic below
-        }
-        // If overwrite is false, check if we should skip generation
-        else {
-            // For normal attributes: don't generate if refresh is not needed and the attribute already exists
-            if (!definition.refresh && !isUniqueAttribute(definition) && fusionAccount.attributes[definition.name]) {
-                return
-            }
-
-            // For unique/uuid attributes: don't generate if the attribute already exists
-            if (isUniqueAttribute(definition) && fusionAccount.attributes[definition.name]) {
-                return
-            }
-        }
-
         let value: string | undefined
 
         switch (definition.type) {
@@ -592,7 +593,7 @@ export class AttributeService {
 
         // Update current attribute with the generated value
         if (value !== undefined) {
-            fusionAccount.attributeBag.current[definition.name] = value
+            fusionAccount.attributes[name] = value
         }
     }
 

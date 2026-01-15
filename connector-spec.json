@@ -41,7 +41,6 @@
         "expression": "#set($initial = $firstname.substring(0, 1))$initial$lastname",
         "unique": false,
         "refresh": false,
-        "overwrite": true,
         "force": false,
         "type": "normal",
         "algorithm": "name-matcher"
@@ -464,13 +463,6 @@
                                             "parentValue": "normal",
                                             "helpKey": "Recalculate the attribute value on every aggregation run, even if it already has a value (only available for normal attributes)"
                                         },
-                                        {
-                                            "key": "overwrite",
-                                            "label": "Overwrite existing value?",
-                                            "type": "toggle",
-                                            "required": true,
-                                            "helpKey": "If enabled, generated values will overwrite values mapped from source accounts. If disabled, mapped values take precedence over generated values."
-                                        }
                                     ]
                                 }
                             ]

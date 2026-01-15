@@ -32,13 +32,13 @@ export const accountList = async (
         log.debug('Fetching fusion accounts, form data, identities, managed accounts, and sender')
         const fetchPromises = [
             sources.fetchFusionAccounts(),
-            forms.fetchFormData(),
             identities.fetchIdentities(),
             sources.fetchManagedAccounts(),
             messaging.fetchSender(),
         ]
 
         await Promise.all(fetchPromises)
+        await forms.fetchFormData()
         log.debug('All fetch operations completed')
 
         log.debug('Processing fusion accounts and identities')
@@ -54,9 +54,11 @@ export const accountList = async (
 
         if (fusion.fusionReportOnAggregation) {
             log.info('Generating and sending fusion report')
+            const fusionOwner = sources.fusionSourceOwner
+            const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
+            assert(fusionOwnerAccount, 'Fusion owner account not found')
             const report = fusion.generateReport()
-            assert(report, 'Failed to generate fusion report')
-            await messaging.sendReport(report)
+            await messaging.sendReport(report, fusionOwnerAccount)
         }
 
         const accounts = await fusion.listISCAccounts()

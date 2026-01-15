@@ -24,7 +24,9 @@ import { FusionReport, FusionReportAccount } from './types'
  */
 export class FusionService {
     private _fusionIdentityMap: Map<string, FusionAccount> = new Map()
-    private _fusionAccounts: FusionAccount[] = []
+    private _fusionAccountMap: Map<string, FusionAccount> = new Map()
+    // Managed accounts that were flagged as potential duplicates (forms created)
+    private _potentialDuplicateMap: Map<string, FusionAccount> = new Map()
     private _reviewersBySourceId: Map<string, Set<FusionAccount>> = new Map()
     private readonly sourcesByName: Map<string, SourceInfo> = new Map()
     private readonly reset: boolean
@@ -118,11 +120,12 @@ export class FusionService {
         )
 
         const fusionAccount = FusionAccount.fromFusionAccount(this.config, account)
-        fusionAccount.listReviewerSources().forEach((sourceId) => {
-            const reviewers: Set<FusionAccount> = this._reviewersBySourceId.get(sourceId) ?? new Set()
-            reviewers.add(fusionAccount)
-            this._reviewersBySourceId.set(sourceId, reviewers)
-        })
+        const key = this.attributes.getSimpleKey(fusionAccount)
+        fusionAccount.setKey(key)
+
+        // Add to appropriate map based on correlation status
+        // Note: fromFusionAccount already sets the uncorrelated status if account.uncorrelated is true
+        this.setFusionAccount(fusionAccount)
 
         return fusionAccount
     }
@@ -135,8 +138,8 @@ export class FusionService {
         const managedAccountsMap = this.sources.managedAccountsById
         assert(managedAccountsMap, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
-        const reviewerSourceIds = fusionAccount.listReviewerSources()
-        reviewerSourceIds.forEach((sourceId) => {
+
+        fusionAccount.listReviewerSources().forEach((sourceId) => {
             this.setReviewerForSource(fusionAccount, sourceId)
         })
 
@@ -159,13 +162,8 @@ export class FusionService {
             await this.attributes.refreshAttributes(fusionAccount)
         }
 
-        if (account.uncorrelated) {
-            this._fusionAccounts.push(fusionAccount)
-        } else {
-            if (this.correlateOnAggregation) {
-                await this.identities.correlateAccounts(fusionAccount)
-            }
-            this._fusionIdentityMap.set(identityId, fusionAccount)
+        if (!account.uncorrelated && this.correlateOnAggregation) {
+            this.identities.correlateAccounts(fusionAccount)
         }
 
         return fusionAccount
@@ -217,9 +215,16 @@ export class FusionService {
 
             this.attributes.mapAttributes(fusionAccount)
             await this.attributes.refreshAttributes(fusionAccount)
-            fusionAccount.attributes[fusionDisplayAttribute] = identity.name
+            const key = this.attributes.getSimpleKey(fusionAccount)
+            fusionAccount.setKey(key)
 
-            this._fusionIdentityMap.set(identityId, fusionAccount)
+            // Set display attribute using the attributes getter
+            const currentAttributes = fusionAccount.attributes
+            currentAttributes[fusionDisplayAttribute] = identity.name
+            fusionAccount.setMappedAttributes(currentAttributes)
+
+            // Use setter method to add to appropriate map
+            this.setFusionAccount(fusionAccount)
         }
     }
 
@@ -240,18 +245,24 @@ export class FusionService {
         let fusionAccount: FusionAccount
         if (fusionDecision.newIdentity) {
             fusionAccount = FusionAccount.fromFusionDecision(this.config, fusionDecision)
-            fusionAccount.addFusionDecisionLayer(fusionDecision)
-            const managedAccountsMap = this.sources.managedAccountsById!
-            fusionAccount.addManagedAccountLayer(managedAccountsMap)
-            this._fusionAccounts.push(fusionAccount)
         } else {
             fusionAccount = this._fusionIdentityMap.get(fusionDecision.identityId!)!
             assert(fusionAccount, 'Fusion account not found')
-            fusionAccount.addFusionDecisionLayer(fusionDecision)
         }
 
+        fusionAccount.addFusionDecisionLayer(fusionDecision)
+        const managedAccountsMap = this.sources.managedAccountsById!
+        fusionAccount.addManagedAccountLayer(managedAccountsMap)
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshAttributes(fusionAccount)
+
+        if (fusionDecision.newIdentity) {
+            const key = this.attributes.getSimpleKey(fusionAccount)
+            fusionAccount.setKey(key)
+
+            // Use setter method to add to appropriate map
+            this.setFusionAccount(fusionAccount)
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -280,6 +291,10 @@ export class FusionService {
                 `Account ${account.name} [${fusionAccount.sourceName}] is a potential duplicate, creating fusion form`
             )
 
+            // Keep a reference for reporting (these accounts are not added to _fusionAccountMap)
+            const key = fusionAccount.managedAccountId ?? account.id ?? `${fusionAccount.sourceName}:${account.name}`
+            this._potentialDuplicateMap.set(key, fusionAccount)
+
             const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
             assert(sourceInfo, 'Source info not found')
             const reviewers = this._reviewersBySourceId.get(sourceInfo.id!)
@@ -287,7 +302,11 @@ export class FusionService {
         } else {
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
             await this.attributes.refreshUniqueAttributes(fusionAccount)
-            this._fusionAccounts.push(fusionAccount)
+            const key = this.attributes.getSimpleKey(fusionAccount)
+            fusionAccount.setKey(key)
+
+            // Use setter method to add to appropriate map
+            this.setFusionAccount(fusionAccount)
         }
     }
 
@@ -319,7 +338,7 @@ export class FusionService {
      */
     public async listISCAccounts(): Promise<StdAccountListOutput[]> {
         return [
-            ...this._fusionAccounts.map((x) => this.getISCAccount(x)),
+            ...Array.from(this._fusionAccountMap.values()).map((x) => this.getISCAccount(x)),
             ...Array.from(this._fusionIdentityMap.values()).map((x) => this.getISCAccount(x)),
         ]
     }
@@ -328,6 +347,9 @@ export class FusionService {
     // Private Helper Methods
     // ------------------------------------------------------------------------
 
+    /**
+     * Set a reviewer for a specific source
+     */
     private setReviewerForSource(fusionAccount: FusionAccount, sourceId: string): void {
         fusionAccount.setSourceReviewer(sourceId)
         const reviewers: Set<FusionAccount> = this._reviewersBySourceId.get(sourceId) ?? new Set()
@@ -357,7 +379,7 @@ export class FusionService {
     public getISCAccount(fusionAccount: FusionAccount): StdAccountListOutput {
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
         const disabled = fusionAccount.disabled
-        const key = this.attributes.getSimpleKey(fusionAccount)
+        const key = fusionAccount.key
         attributes.sources = attrConcat(Array.from(fusionAccount.sources))
         attributes.accounts = Array.from(fusionAccount.accountIds)
         attributes.history = fusionAccount.history
@@ -377,15 +399,96 @@ export class FusionService {
         return Array.from(this._fusionIdentityMap.values())
     }
 
+    /**
+     * Get all fusion accounts keyed by native identity
+     */
+    public get fusionAccounts(): FusionAccount[] {
+        return Array.from(this._fusionAccountMap.values())
+    }
+
+    /**
+     * Set a fusion account, automatically determining whether to add it as a fusion account
+     * or fusion identity based on whether it has an identityId and is not uncorrelated.
+     *
+     * - If the account has an identityId and is not uncorrelated → added to _fusionIdentityMap (keyed by identityId)
+     * - Otherwise → added to _fusionAccountMap (keyed by nativeIdentity)
+     *
+     * This matches the logic in preProcessFusionAccount where uncorrelated accounts go to
+     * _fusionAccountMap and correlated accounts go to _fusionIdentityMap.
+     */
+    public setFusionAccount(fusionAccount: FusionAccount): void {
+        const identityId = fusionAccount.identityId
+        const hasIdentityId = identityId && identityId.trim() !== ''
+        const isUncorrelated = fusionAccount.statuses.includes('uncorrelated')
+
+        if (hasIdentityId && !isUncorrelated) {
+            // Add to fusion identity map, keyed by identityId (correlated account)
+            // identityId is guaranteed to be a string here due to hasIdentityId check
+            this._fusionIdentityMap.set(identityId!, fusionAccount)
+        } else {
+            // Add to fusion account map, keyed by nativeIdentity (uncorrelated account)
+            // This indicates a non-identity fusion account (no identityId)
+            assert(
+                fusionAccount.nativeIdentity,
+                'Fusion account must have a nativeIdentity to be added to fusion account map'
+            )
+            this._fusionAccountMap.set(fusionAccount.nativeIdentity, fusionAccount)
+        }
+    }
+
+    /**
+     * Get a fusion account by native identity
+     */
+    public getFusionAccountByNativeIdentity(nativeIdentity: string): FusionAccount | undefined {
+        return this._fusionAccountMap.get(nativeIdentity)
+    }
+
+    /**
+     * Generate a fusion report with all accounts that have potential duplicates
+     */
     public generateReport(): FusionReport {
         const accounts: FusionReportAccount[] = []
+        const reportAttributes = this.config.fusionFormAttributes ?? []
+        const baseUrl = this.config.baseurl
+        const uiOrigin = (() => {
+            try {
+                const u = new URL(baseUrl)
+                // remove the api subdomain segment used by the API host
+                const host = u.host.replace('.api.', '.').replace(/^api\./, '')
+                return `${u.protocol}//${host}`
+            } catch {
+                return undefined
+            }
+        })()
 
-        // Process all fusion accounts that have matches
-        for (const fusionAccount of this._fusionAccounts) {
-            if (fusionAccount.fusionMatches && fusionAccount.fusionMatches.length > 0) {
-                const matches = fusionAccount.fusionMatches.map((match) => ({
+        const pickAttributes = (attrs: Record<string, any> | undefined): Record<string, any> | undefined => {
+            if (!attrs) return undefined
+            if (!reportAttributes || reportAttributes.length === 0) return undefined
+
+            const picked: Record<string, any> = {}
+            for (const name of reportAttributes) {
+                const direct = attrs[name]
+                const lowerFirst = name ? name.charAt(0).toLowerCase() + name.slice(1) : name
+                const fallback = lowerFirst ? attrs[lowerFirst] : undefined
+                const value = direct ?? fallback
+                if (value !== undefined && value !== null && value !== '') {
+                    picked[name] = value
+                }
+            }
+            return Object.keys(picked).length > 0 ? picked : undefined
+        }
+
+        // Report on the managed accounts that were flagged as potential duplicates (forms created)
+        for (const fusionAccount of this._potentialDuplicateMap.values()) {
+            const fusionMatches = fusionAccount.fusionMatches
+            if (fusionMatches && fusionMatches.length > 0) {
+                const matches = fusionMatches.map((match) => ({
                     identityName: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
                     identityId: match.fusionIdentity.identityId,
+                    identityUrl:
+                        uiOrigin && match.fusionIdentity.identityId
+                            ? `${uiOrigin}/ui/a/admin/identities/${encodeURIComponent(match.fusionIdentity.identityId)}/details/attributes`
+                            : undefined,
                     isMatch: true,
                     scores: match.scores.map((score) => ({
                         attribute: score.attribute,
@@ -400,18 +503,19 @@ export class FusionService {
                 accounts.push({
                     accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
                     accountSource: fusionAccount.sourceName,
+                    accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
                     accountEmail: fusionAccount.email,
-                    accountAttributes: fusionAccount.attributes,
+                    accountAttributes: pickAttributes(fusionAccount.attributes as any),
                     matches,
                 })
             }
         }
 
-        const potentialDuplicates = accounts.filter((a) => a.matches.length > 0).length
+        const potentialDuplicates = accounts.length
 
         return {
             accounts,
-            totalAccounts: this._fusionAccounts.length,
+            totalAccounts: this._fusionAccountMap.size,
             potentialDuplicates,
             reportDate: new Date(),
         }

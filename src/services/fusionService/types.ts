@@ -16,6 +16,7 @@ export type FusionReportScore = {
 export type FusionReportMatch = {
     identityName: string
     identityId?: string
+    identityUrl?: string
     isMatch: boolean
     scores?: FusionReportScore[]
 }

@@ -2,7 +2,7 @@ import { Account, IdentityDocument } from 'sailpoint-api-client'
 import { getDateFromISOString } from '../utils/date'
 import { FusionDecision } from './form'
 import { FusionConfig, SourceConfig } from './config'
-import { Attributes } from '@sailpoint/connector-sdk'
+import { Attributes, SimpleKeyType } from '@sailpoint/connector-sdk'
 import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE } from '../services/attributeService'
 import { FusionMatch } from '../services/scoringService'
 
@@ -16,33 +16,42 @@ type AttributeBag = {
 
 // TODO: Limit the size of the history array
 export class FusionAccount {
-    // ------------------------------------------------------------------------
-    // Public state
-    // ------------------------------------------------------------------------
+    // ============================================================================
+    // Private Fields - All state is encapsulated
+    // ============================================================================
 
-    public duplicate = false
-    public disabled = false
+    // Core identity fields
+    private _type: 'fusion' | 'identity' | 'managed' | 'decision' = 'fusion'
+    private _identityId?: string
+    private _nativeIdentity?: string
+    private _managedAccountId?: string
+    private _key?: SimpleKeyType
 
-    public history: string[] = []
+    // Basic account information
+    private _email?: string
+    private _name?: string
+    private _displayName?: string
+    private _sourceName = ''
 
-    public email?: string
-    public name?: string
-    public displayName?: string
-    public sourceName = ''
+    // State flags
+    private _uncorrelated = false
+    private _disabled = false
+    private _needsRefresh = false
+    private _isMatch = false
 
+    // Collections
     private _accountIds: Set<string> = new Set()
     private _missingAccountIds: Set<string> = new Set()
     private _statuses: Set<string> = new Set()
     private _actions: Set<string> = new Set()
     private _reviews: Set<string> = new Set()
     private _sources: Set<string> = new Set()
+    private _previousAccountIds: Set<string> = new Set()
+    private _correlationPromises: Promise<void>[] = []
+    private _fusionMatches: FusionMatch[] = []
+    private _history: string[] = []
 
-    public fusionMatches: FusionMatch[] = []
-
-    // ------------------------------------------------------------------------
-    // Private backing fields (use leading "_" only for fields with accessors)
-    // ------------------------------------------------------------------------
-
+    // Attribute management
     private _attributeBag: AttributeBag = {
         previous: {},
         current: {},
@@ -51,34 +60,204 @@ export class FusionAccount {
         sources: new Map(),
     }
 
-    private _needsRefresh = false
-    private _type: 'fusion' | 'identity' | 'managed' | 'decision' = 'fusion'
-
-    private _previousAccountIds: Set<string> = new Set()
+    // Timestamps
     private _modified: Date = new Date()
-    private _identityId = ''
-    private _nativeIdentity?: string
 
-    private _correlationPromises: Promise<void>[] = []
-    private _isMatch = false
+    // Read-only configuration (set in constructor)
+    private readonly sourceConfigs: SourceConfig[]
+    private readonly cloudDisplayName: string
+    private readonly fusionAccountRefreshThresholdInSeconds: number
 
-    // ------------------------------------------------------------------------
+    // ============================================================================
     // Construction
-    // ------------------------------------------------------------------------
+    // ============================================================================
 
     private constructor(
-        private readonly sourceConfigs: SourceConfig[],
-        private readonly cloudDisplayName: string,
-        private readonly fusionAccountRefreshThresholdInSeconds: number
-    ) {}
+        sourceConfigs: SourceConfig[],
+        cloudDisplayName: string,
+        fusionAccountRefreshThresholdInSeconds: number
+    ) {
+        this.sourceConfigs = sourceConfigs
+        this.cloudDisplayName = cloudDisplayName
+        this.fusionAccountRefreshThresholdInSeconds = fusionAccountRefreshThresholdInSeconds
+    }
 
-    // ------------------------------------------------------------------------
-    // Basic accessors
-    // ------------------------------------------------------------------------
+    // ============================================================================
+    // Factory Methods - Must be first to ensure proper initialization order
+    // ============================================================================
 
-    get type(): 'fusion' | 'identity' | 'managed' | 'decision' {
+    public static fromFusionAccount(config: FusionConfig, account: Account): FusionAccount {
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName ?? '',
+            config.fusionAccountRefreshThresholdInSeconds
+        )
+        // The ISC Account "id" (stable identifier for the account object)
+        fusionAccount._name = account.name ?? undefined
+        fusionAccount._displayName = fusionAccount._name
+        fusionAccount._modified = getDateFromISOString(account.modified)
+        fusionAccount._disabled = account.disabled ?? false
+        fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
+        fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
+        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
+        fusionAccount._history = account.attributes?.history ?? []
+        fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
+        fusionAccount._attributeBag.previous = account.attributes ?? {}
+        fusionAccount._attributeBag.previous[COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE] = account.uuid!
+        fusionAccount._attributeBag.current = { ...(account.attributes ?? {}) }
+        fusionAccount._identityId = account.identityId ?? undefined
+        fusionAccount._sourceName = config.cloudDisplayName ?? ''
+        if (account.uncorrelated) {
+            fusionAccount.setUncorrelated()
+        }
+
+        if (fusionAccount._statuses.has('baseline')) {
+            fusionAccount._sources.add('Identities')
+        }
+
+        return fusionAccount
+    }
+
+    public static fromIdentity(config: FusionConfig, identity: IdentityDocument): FusionAccount {
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName,
+            config.fusionAccountRefreshThresholdInSeconds
+        )
+
+        fusionAccount._type = 'identity'
+        fusionAccount._name = identity.attributes?.displayName ?? identity.name
+        fusionAccount._needsRefresh = true
+        fusionAccount._disabled = identity.disabled ?? false
+        fusionAccount._identityId = identity.id ?? undefined
+        fusionAccount._attributeBag.previous = identity.attributes ?? {}
+        fusionAccount._sourceName = 'Identities'
+        fusionAccount._sources.add('Identities')
+        fusionAccount.setBaseline()
+
+        return fusionAccount
+    }
+
+    public static fromManagedAccount(config: FusionConfig, account: Account): FusionAccount {
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName,
+            config.fusionAccountRefreshThresholdInSeconds
+        )
+
+        fusionAccount._type = 'managed'
+        fusionAccount._needsRefresh = true
+        fusionAccount._disabled = account.disabled ?? false
+        fusionAccount._sourceName = account.sourceName ?? ''
+        fusionAccount._name = account.name ?? ''
+        fusionAccount._previousAccountIds.add(account.id!)
+        fusionAccount._managedAccountId = account.id
+        fusionAccount._sources.add(account.sourceName!)
+        fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
+        fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
+        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
+        fusionAccount._history = account.attributes?.history ?? []
+        fusionAccount.setManagedAccount(account)
+        fusionAccount.setUnmatched()
+        fusionAccount.setUncorrelated()
+
+        return fusionAccount
+    }
+
+    public static fromFusionDecision(config: FusionConfig, decision: FusionDecision): FusionAccount {
+        const fusionAccount = new FusionAccount(
+            config.sources,
+            config.cloudDisplayName,
+            config.fusionAccountRefreshThresholdInSeconds
+        )
+
+        fusionAccount._type = 'decision'
+        fusionAccount._needsRefresh = true
+        fusionAccount._sourceName = decision.account.sourceName ?? ''
+        fusionAccount._name = decision.account.name ?? ''
+        fusionAccount._managedAccountId = decision.account.id
+        fusionAccount.setUncorrelated()
+
+        return fusionAccount
+    }
+
+    // ============================================================================
+    // Accessors - Core Properties
+    // ============================================================================
+
+    public get type(): 'fusion' | 'identity' | 'managed' | 'decision' {
         return this._type
     }
+
+    public get identityId(): string | undefined {
+        return this._identityId
+    }
+
+    public get nativeIdentity(): string {
+        return this._nativeIdentity!
+    }
+
+    /**
+     * Safe nativeIdentity accessor (may be undefined until key is set)
+     */
+    public get nativeIdentityOrUndefined(): string | undefined {
+        return this._nativeIdentity
+    }
+
+    /**
+     * Stable ISC account id for this source account (may be undefined for non-account FusionAccount types)
+     */
+    public get managedAccountId(): string | undefined {
+        return this._managedAccountId
+    }
+
+    public get key(): SimpleKeyType {
+        return this._key!
+    }
+
+    // ============================================================================
+    // Accessors - Account Information
+    // ============================================================================
+
+    public get email(): string | undefined {
+        return this._email
+    }
+
+    public get name(): string | undefined {
+        return this._name
+    }
+
+    public get displayName(): string | undefined {
+        return this._displayName
+    }
+
+    public get sourceName(): string {
+        return this._sourceName
+    }
+
+    // ============================================================================
+    // Accessors - State Flags
+    // ============================================================================
+
+    public get uncorrelated(): boolean {
+        return this._uncorrelated
+    }
+
+    public get disabled(): boolean {
+        return this._disabled
+    }
+
+    public get needsRefresh(): boolean {
+        return this._needsRefresh
+    }
+
+    public get isMatch(): boolean {
+        return this._isMatch
+    }
+
+    // ============================================================================
+    // Accessors - Collections (return arrays for immutability)
+    // ============================================================================
 
     public get accountIds(): string[] {
         return Array.from(this._accountIds)
@@ -104,21 +283,104 @@ export class FusionAccount {
         return Array.from(this._sources)
     }
 
-    public get attributeBag(): AttributeBag {
-        return this._attributeBag
+    public get fusionMatches(): FusionMatch[] {
+        return [...this._fusionMatches]
     }
+
+    public get history(): string[] {
+        return [...this._history]
+    }
+
+    // ============================================================================
+    // Accessors - Attributes
+    // ============================================================================
 
     public get attributes(): Attributes {
         return this._attributeBag.current
     }
 
-    public get identityId(): string {
-        return this._identityId
+    public get attributeBag(): AttributeBag {
+        return this._attributeBag
     }
 
-    // ------------------------------------------------------------------------
-    // Set mutation helpers with optional history messages
-    // ------------------------------------------------------------------------
+    public get currentAttributes(): Attributes {
+        return this._attributeBag.current
+    }
+
+    public get previousAttributes(): Attributes {
+        return this._attributeBag.previous
+    }
+
+    public get sourceAttributeMap(): Map<string, { [key: string]: any }> {
+        const map = new Map<string, { [key: string]: any }>()
+        for (const [source, attrsArray] of this._attributeBag.sources.entries()) {
+            if (attrsArray.length > 0) {
+                map.set(source, attrsArray[0])
+            }
+        }
+        return map
+    }
+
+    // ============================================================================
+    // Accessors - Internal State (for service layer use)
+    // ============================================================================
+
+    public get modified(): Date {
+        return this._modified
+    }
+
+    public get correlationPromises(): Promise<void>[] {
+        return [...this._correlationPromises]
+    }
+
+    // ============================================================================
+    // Setters - Core Properties
+    // ============================================================================
+
+    public setKey(key: SimpleKeyType): void {
+        this._key = key
+        this._nativeIdentity = key.simple.id
+    }
+
+    // ============================================================================
+    // Setters - Account Information
+    // ============================================================================
+
+    public setEmail(email: string | undefined): void {
+        this._email = email
+    }
+
+    public setName(name: string | undefined): void {
+        this._name = name
+    }
+
+    public setDisplayName(displayName: string | undefined): void {
+        this._displayName = displayName
+    }
+
+    public setSourceName(sourceName: string): void {
+        this._sourceName = sourceName
+    }
+
+    // ============================================================================
+    // Setters - State Flags
+    // ============================================================================
+
+    public enable(): void {
+        this._disabled = false
+    }
+
+    public disable(): void {
+        this._disabled = true
+    }
+
+    public setMappedAttributes(attributes: Attributes): void {
+        this._attributeBag.current = attributes
+    }
+
+    // ============================================================================
+    // Mutation Methods - Account IDs
+    // ============================================================================
 
     public addAccountId(id: string, message?: string): void {
         this._accountIds.add(id)
@@ -146,6 +408,10 @@ export class FusionAccount {
         }
     }
 
+    // ============================================================================
+    // Mutation Methods - Statuses
+    // ============================================================================
+
     public addStatus(status: string, message?: string): void {
         this._statuses.add(status)
         if (message) {
@@ -158,6 +424,14 @@ export class FusionAccount {
             this.addHistory(message)
         }
     }
+
+    public hasStatus(status: string): boolean {
+        return this._statuses.has(status)
+    }
+
+    // ============================================================================
+    // Mutation Methods - Actions
+    // ============================================================================
 
     public addAction(action: string, message?: string): void {
         this._actions.add(action)
@@ -172,6 +446,20 @@ export class FusionAccount {
         }
     }
 
+    public setSourceReviewer(sourceId: string): void {
+        this._actions.add(`reviewer:${sourceId}`)
+    }
+
+    public listReviewerSources(): string[] {
+        const reviewerActions = Array.from(this._actions).filter((action) => action.startsWith('reviewer:'))
+        const sourceIds = reviewerActions.map((action) => action.split(':')[1])
+        return sourceIds
+    }
+
+    // ============================================================================
+    // Mutation Methods - Reviews
+    // ============================================================================
+
     public addReview(review: string, message?: string): void {
         this._reviews.add(review)
         if (message) {
@@ -184,6 +472,22 @@ export class FusionAccount {
             this.addHistory(message)
         }
     }
+
+    public addFusionReview(reviewUrl: string): void {
+        this._reviews.add(reviewUrl)
+        this._statuses.add('activeReviews')
+    }
+
+    public removeFusionReview(reviewUrl: string): void {
+        this._reviews.delete(reviewUrl)
+        if (this._reviews.size === 0) {
+            this._statuses.delete('activeReviews')
+        }
+    }
+
+    // ============================================================================
+    // Mutation Methods - Sources
+    // ============================================================================
 
     public addSource(source: string, message?: string): void {
         this._sources.add(source)
@@ -198,112 +502,35 @@ export class FusionAccount {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Core mutation helpers
-    // ------------------------------------------------------------------------
+    // ============================================================================
+    // Mutation Methods - Fusion Matches
+    // ============================================================================
 
     public addFusionMatch(fusionMatch: FusionMatch): void {
-        this.fusionMatches.push(fusionMatch)
+        this._fusionMatches.push(fusionMatch)
         this._isMatch = true
     }
+
+    // ============================================================================
+    // Mutation Methods - History
+    // ============================================================================
 
     private addHistory(message: string): void {
         const now = new Date().toISOString().split('T')[0]
         const datedMessage = `[${now}] ${message}`
-        this.history.push(datedMessage)
+        this._history.push(datedMessage)
     }
 
-    public static fromFusionAccount(config: FusionConfig, account: Account): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName ?? '',
-            config.fusionAccountRefreshThresholdInSeconds
-        )
-        fusionAccount._nativeIdentity = account.nativeIdentity
-        fusionAccount.name = account.name ?? undefined
-        fusionAccount.displayName = fusionAccount.name
-        fusionAccount._modified = getDateFromISOString(account.modified)
-        fusionAccount.disabled = account.disabled ?? false
-        fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
-        fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
-        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
-        fusionAccount.history = account.attributes?.history ?? []
-        fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
-        fusionAccount._attributeBag.previous = account.attributes ?? {}
-        fusionAccount._attributeBag.previous[COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE] = account.uuid!
-        fusionAccount._attributeBag.current = { ...(account.attributes ?? {}) }
-        fusionAccount._identityId = account.identityId ?? ''
-        fusionAccount.sourceName = config.cloudDisplayName ?? ''
-
-        if (fusionAccount._statuses.has('baseline')) {
-            fusionAccount._sources.add('Identities')
-        }
-
-        return fusionAccount
-    }
-
-    public static fromIdentity(config: FusionConfig, identity: IdentityDocument): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName,
-            config.fusionAccountRefreshThresholdInSeconds
-        )
-
-        fusionAccount._type = 'identity'
-        fusionAccount.name = identity.name
-        fusionAccount._needsRefresh = true
-        fusionAccount.disabled = identity.disabled ?? false
-        fusionAccount._identityId = identity.id ?? ''
-        fusionAccount._attributeBag.previous = identity.attributes ?? {}
-        fusionAccount.sourceName = 'Identities'
-        fusionAccount._sources.add('Identities')
-        fusionAccount.setBaseline()
-
-        return fusionAccount
-    }
-
-    public static fromFusionDecision(config: FusionConfig, decision: FusionDecision): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName,
-            config.fusionAccountRefreshThresholdInSeconds
-        )
-
-        fusionAccount._type = 'decision'
-        fusionAccount._needsRefresh = true
-        fusionAccount.sourceName = decision.account.sourceName ?? ''
-        fusionAccount.name = decision.account.name ?? ''
-        // set decision
-
-        return fusionAccount
-    }
-
-    public static fromManagedAccount(config: FusionConfig, account: Account): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName,
-            config.fusionAccountRefreshThresholdInSeconds
-        )
-
-        fusionAccount._type = 'managed'
-        fusionAccount._needsRefresh = true
-        fusionAccount.disabled = account.disabled ?? false
-        fusionAccount.sourceName = account.sourceName ?? ''
-        fusionAccount.name = account.name ?? ''
-        fusionAccount._previousAccountIds.add(account.id!)
-        fusionAccount.setManagedAccount(account)
-        fusionAccount._sources.add(account.sourceName!)
-        fusionAccount.setUnmatched()
-
-        return fusionAccount
-    }
+    // ============================================================================
+    // Layer Methods - Add data layers (must be called in order)
+    // ============================================================================
 
     public addIdentityLayer(identity: IdentityDocument): void {
-        this.email = identity.attributes?.email as string
-        this.name = identity.name ?? ''
-        this.displayName = identity.attributes?.displayName as string
+        this._email = identity.attributes?.email as string
+        this._name = identity.name ?? ''
+        this._displayName = identity.attributes?.displayName as string
         this._attributeBag.identity = identity.attributes ?? {}
-        this._identityId = identity.id ?? ''
+        this._identityId = identity.id ?? undefined
         const sourceNames = this.sourceConfigs.map((sc) => sc.name)
         identity.accounts?.forEach((account) => {
             if (sourceNames.includes(account.source?.name ?? '')) {
@@ -321,7 +548,7 @@ export class FusionAccount {
             if (this._previousAccountIds.has(id)) {
                 this.setManagedAccount(account)
                 keysToDelete.push(id)
-            } else if (account.identityId === this.identityId) {
+            } else if (this._identityId && account.identityId === this._identityId) {
                 this.setManagedAccount(account)
                 keysToDelete.push(id)
             }
@@ -352,12 +579,14 @@ export class FusionAccount {
                 this.setManual(decision)
             } else {
                 this.setAuthorized(decision)
-                this._identityId = decision.identityId ?? ''
+                this._identityId = decision.identityId ?? undefined
             }
         }
     }
 
-    // Account edition feature removed: edit decisions are no longer applied
+    // ============================================================================
+    // Internal Layer Helpers
+    // ============================================================================
 
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
@@ -384,6 +613,53 @@ export class FusionAccount {
         }
     }
 
+    // ============================================================================
+    // Status Setting Methods (private - called by factory methods and layer methods)
+    // ============================================================================
+
+    private setUncorrelated(): void {
+        this._uncorrelated = true
+        this._statuses.add('uncorrelated')
+    }
+
+    private setUncorrelatedAccount(accountId?: string): void {
+        if (!accountId) return
+
+        this._accountIds.add(accountId)
+        this._missingAccountIds.add(accountId)
+
+        this._actions.delete('correlated')
+        this._statuses.add('uncorrelated')
+    }
+
+    private setBaseline(): void {
+        this._statuses.add('baseline')
+        this.addHistory(`Set ${this._name} [${this._sourceName}] as baseline`)
+    }
+
+    private setUnmatched(): void {
+        this._statuses.add('unmatched')
+        this.addHistory(`Set ${this._name} [${this._sourceName}] as unmatched`)
+    }
+
+    private setManual(decision: FusionDecision): void {
+        this._statuses.add('manual')
+        const submitterName = decision.submitter.name || decision.submitter.email
+        const message = `Created by ${submitterName} from ${decision.account.name} [${decision.account.sourceName}]`
+        this.addHistory(message)
+    }
+
+    private setAuthorized(decision: FusionDecision): void {
+        this._statuses.add('authorized')
+        const submitterName = decision.submitter.name || decision.submitter.email
+        const message = `${decision.account.name} [${decision.account.sourceName}] authorized by ${submitterName}`
+        this.addHistory(message)
+    }
+
+    // ============================================================================
+    // Correlation Methods
+    // ============================================================================
+
     public setCorrelatedAccount(accountId: string, promise?: Promise<any>): void {
         if (promise) {
             this._correlationPromises.push(promise)
@@ -397,112 +673,35 @@ export class FusionAccount {
         }
     }
 
-    private setUncorrelatedAccount(accountId?: string): void {
-        if (!accountId) return
-
-        this._accountIds.add(accountId)
-        this._missingAccountIds.add(accountId)
-
-        this._actions.delete('correlated')
-        this._statuses.add('uncorrelated')
+    public async correlateMissingAccounts(
+        fn: (accountId: string, identityId: string) => Promise<boolean>
+    ): Promise<void> {
+        this._missingAccountIds.forEach(async (id) => {
+            this._correlationPromises.push(this.correlateMissingAccount(id, fn))
+        })
     }
 
-    public listReviewerSources(): string[] {
-        const reviewerActions = Array.from(this._actions).filter((action) => action.startsWith('reviewer:'))
-        const sourceIds = reviewerActions.map((action) => action.split(':')[1])
-
-        return sourceIds
-    }
-
-    /**
-     * Get the native identity (used as primary key in IndexedCollection)
-     */
-    public get nativeIdentity(): string | undefined {
-        return this._nativeIdentity
-    }
-
-    /**
-     * Get source attribute map for attribute mapping
-     * Returns a Map where each source maps to its attributes (first item from the array)
-     */
-    public get sourceAttributeMap(): Map<string, { [key: string]: any }> {
-        const map = new Map<string, { [key: string]: any }>()
-        for (const [source, attrsArray] of this._attributeBag.sources.entries()) {
-            if (attrsArray.length > 0) {
-                map.set(source, attrsArray[0])
-            }
+    public async correlateMissingAccount(
+        accountId: string,
+        fn: (accountId: string, identityId: string) => Promise<boolean>
+    ): Promise<void> {
+        if (this._identityId && (await fn(accountId, this._identityId))) {
+            this._missingAccountIds.delete(accountId)
+            this.addHistory(`Missing account ${accountId} correlated`)
         }
-        return map
     }
 
-    /**
-     * Get previous attributes to use as defaults
-     */
-    public get previousAttributes(): { [key: string]: any } {
-        return this._attributeBag.previous
-    }
-
-    /**
-     * Check if account needs refresh
-     */
-    public get needsRefresh(): boolean {
-        return this._needsRefresh
-    }
-
-    /**
-     * Get current attributes
-     */
-    public get currentAttributes(): { [key: string]: any } {
-        return this._attributeBag.current
-    }
-
-    /**
-     * Set mapped attributes (used by AttributeService)
-     */
-    public setMappedAttributes(attributes: { [key: string]: any }): void {
-        this._attributeBag.current = attributes
-    }
+    // ============================================================================
+    // Utility Methods
+    // ============================================================================
 
     public isOrphan(): boolean {
         const statuses = this._attributeBag.current.statuses as any
         return statuses instanceof Set ? statuses.has('orphan') : false
     }
 
-    private setEdited() {
-        this._statuses.add('edited')
-    }
-
-    private unsetEdited(message: string) {
-        this._statuses.delete('edited')
-        this.addHistory(message)
-    }
-
-    private setBaseline() {
-        this._statuses.add('baseline')
-        this.addHistory(`Set ${this.name} [${this.sourceName}] as baseline`)
-    }
-
-    private setUnmatched() {
-        this._statuses.add('unmatched')
-        this.addHistory(`Set ${this.name} [${this.sourceName}] as unmatched`)
-    }
-
-    private setManual(decision: FusionDecision) {
-        this._statuses.add('manual')
-        const submitterName = decision.submitter.name || decision.submitter.email
-        const message = `Created by ${submitterName} from ${decision.account.name} [${decision.account.sourceName}]`
-        this.addHistory(message)
-    }
-
-    private setAuthorized(decision: FusionDecision) {
-        this._statuses.add('authorized')
-        const submitterName = decision.submitter.name || decision.submitter.email
-        const message = `${decision.account.name} [${decision.account.sourceName}] authorized by ${submitterName}`
-        this.addHistory(message)
-    }
-
-    public setSourceReviewer(sourceId: string): void {
-        this._actions.add(`reviewer:${sourceId}`)
+    public addFusionDecision(decision: string): void {
+        this.addAction(decision, `Fusion decision added: ${decision}`)
     }
 
     public removeSourceAccount(id: string): void {
@@ -523,61 +722,11 @@ export class FusionAccount {
         this.addHistory(`Source account removed: ${id}`)
     }
 
-    public async correlateMissingAccounts(
-        fn: (accountId: string, identityId: string) => Promise<boolean>
-    ): Promise<void> {
-        this._missingAccountIds.forEach(async (id) => {
-            this._correlationPromises.push(this.correlateMissingAccount(id, fn))
-        })
+    public generateAttributes(): void {
+        // Placeholder for future implementation
     }
 
-    public async correlateMissingAccount(
-        accountId: string,
-        fn: (accountId: string, identityId: string) => Promise<boolean>
-    ): Promise<void> {
-        if (await fn(accountId, this.identityId)) {
-            this._missingAccountIds.delete(accountId)
-            this.addHistory(`Missing account ${accountId} correlated`)
-        }
-    }
-
-    public setAttributes(attributes: { [key: string]: any }) {
-        this._attributeBag.current = { ...this._attributeBag.current, ...attributes }
-        this.setEdited()
-        this.addHistory(`Attributes set: ${JSON.stringify(attributes)}`)
-    }
-
-    public addFusionDecision(decision: string): void {
-        this.addAction(decision, `Fusion decision added: ${decision}`)
-    }
-
-    public generateAttributes(): void {}
-
-    public async editAccount() {
+    public async editAccount(): Promise<void> {
         // TODO: Edit the account
-    }
-
-    public enable(): void {
-        this.disabled = false
-    }
-
-    public disable(): void {
-        this.disabled = true
-    }
-
-    public get isMatch(): boolean {
-        return this._isMatch
-    }
-
-    public addFusionReview(reviewUrl: string): void {
-        this._reviews.add(reviewUrl)
-        this._statuses.add('activeReviews')
-    }
-
-    public removeFusionReview(reviewUrl: string): void {
-        this._reviews.delete(reviewUrl)
-        if (this._reviews.size === 0) {
-            this._statuses.delete('activeReviews')
-        }
     }
 }

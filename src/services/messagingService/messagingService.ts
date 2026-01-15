@@ -37,6 +37,8 @@ export class MessagingService {
     private _templates: Map<string, HandlebarsTemplateDelegate> = new Map()
     private readonly workflowName: string
     private readonly cloudDisplayName: string
+    private readonly uiOrigin?: string
+    private readonly reportAttributes: string[]
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -51,6 +53,16 @@ export class MessagingService {
     ) {
         this.workflowName = config.workflowName
         this.cloudDisplayName = config.cloudDisplayName
+        this.reportAttributes = config.fusionFormAttributes ?? []
+        this.uiOrigin = (() => {
+            try {
+                const u = new URL(config.baseurl)
+                const host = u.host.replace('.api.', '.').replace(/^api\./, '')
+                return `${u.protocol}//${host}`
+            } catch {
+                return undefined
+            }
+        })()
         registerHandlebarsHelpers()
         this._templates = compileEmailTemplates()
     }
@@ -84,6 +96,10 @@ export class MessagingService {
         if (existingWorkflow) {
             this._workflow = existingWorkflow
             this.log.info(`Found existing workflow: ${workflowName} (ID: ${this._workflow.id})`)
+
+            // The Workflows v2025 test endpoint rejects enabled workflows (400).
+            // We rely on testWorkflow for delivery in this connector, so keep it disabled.
+            await this.disableWorkflowIfEnabled(this._workflow)
             return
         }
 
@@ -91,6 +107,9 @@ export class MessagingService {
         try {
             const emailWorkflow = new EmailWorkflow(workflowName, owner)
             assert(emailWorkflow, 'Failed to create email workflow object')
+
+            // Ensure the workflow is disabled so we can call testWorkflow safely.
+            ;(emailWorkflow as any).enabled = false
 
             this._workflow = await this.createWorkflow(emailWorkflow)
             assert(this._workflow, 'Failed to create workflow')
@@ -106,7 +125,17 @@ export class MessagingService {
     /**
      * Send email notification for a fusion form (deduplication review)
      */
-    public async sendFusionEmail(formInstance: FormInstanceResponseV2025): Promise<void> {
+    public async sendFusionEmail(
+        formInstance: FormInstanceResponseV2025,
+        context?: {
+            accountName: string
+            accountSource: string
+            accountId?: string
+            accountEmail?: string
+            accountAttributes: Record<string, any>
+            candidates: Array<{ id: string; name: string; attributes: Record<string, any>; scores?: any[] }>
+        }
+    ): Promise<void> {
         assert(formInstance, 'Form instance is required')
         assert(formInstance.id, 'Form instance ID is required')
 
@@ -117,31 +146,78 @@ export class MessagingService {
             return
         }
 
-        const recipientEmails = await this.getRecipientEmails(recipients.map((r) => r.id))
+        const recipientId = recipients[0].id
+
+        const recipientEmails = await this.getRecipientEmails([recipientId])
         if (recipientEmails.length === 0) {
             this.log.warn(`No valid email addresses found for form instance ${formInstance.id}`)
             return
         }
 
-        assert(formInput, 'Form input is required')
-        const account = formInput?.account as any
-        assert(account, 'Account data is required in form input')
+        const pickAttributes = (attrs: Record<string, any> | undefined): Record<string, any> => {
+            if (!attrs) return {}
+            // Match report behavior: if no attribute whitelist is configured, don't include a full dump.
+            if (!this.reportAttributes || this.reportAttributes.length === 0) return {}
+            const picked: Record<string, any> = {}
+            for (const name of this.reportAttributes) {
+                const direct = attrs[name]
+                const lowerFirst = name ? name.charAt(0).toLowerCase() + name.slice(1) : name
+                const fallback = lowerFirst ? attrs[lowerFirst] : undefined
+                const value = direct ?? fallback
+                if (value !== undefined && value !== null && value !== '') {
+                    picked[name] = value
+                }
+            }
+            return picked
+        }
 
-        const accountName = account?.displayName || account?.value || 'Unknown Account'
-        const candidates = (formInput?.candidates as any[]) || []
+        const accountName =
+            context?.accountName || String((formInput as any)?.name || (formInput as any)?.account || 'Unknown Account')
+        const accountSource = context?.accountSource || String((formInput as any)?.source || 'Unknown')
+        const pickedAccountAttributes = pickAttributes(context?.accountAttributes)
+        const accountAttributes = Object.keys(pickedAccountAttributes).length > 0 ? pickedAccountAttributes : undefined
+        const accountId = context?.accountId || String((formInput as any)?.account || '')
+        const accountEmail = context?.accountEmail
 
-        const subject = `Identity Fusion Review Required: ${accountName}`
+        const candidates =
+            context?.candidates?.map((c) => ({
+                ...c,
+                identityUrl:
+                    this.uiOrigin && c.id
+                        ? `${this.uiOrigin}/ui/a/admin/identities/${encodeURIComponent(c.id)}/details/attributes`
+                        : undefined,
+            })) ?? []
+
+        const subject = `Identity Fusion Review Required: ${accountName} [${accountSource}]`
         const emailData: FusionReviewEmailData = {
-            accountName,
-            accountSource: account?.sourceName || 'Unknown',
-            accountAttributes: account?.attributes || {},
-            candidates: candidates.map((candidate: any) => ({
-                id: candidate.value || candidate.id || 'Unknown',
-                name: candidate.displayName || candidate.name || 'Unknown',
-                attributes: candidate.attributes || {},
-                scores: candidate.scores,
-            })),
+            accounts: [
+                {
+                    accountName,
+                    accountSource,
+                    accountId: accountId || undefined,
+                    accountEmail,
+                    accountAttributes,
+                    matches: candidates.map((candidate: any) => ({
+                        identityName: candidate.name || 'Unknown',
+                        identityId: candidate.id || undefined,
+                        identityUrl: candidate.identityUrl,
+                        isMatch: true,
+                        scores: (candidate.scores || []).map((s: any) => ({
+                            attribute: s.attribute,
+                            algorithm: s.algorithm,
+                            score: s.score,
+                            fusionScore: s.fusionScore,
+                            isMatch: s.isMatch,
+                            comment: s.comment,
+                        })),
+                    })),
+                },
+            ],
+            totalAccounts: 1,
+            potentialDuplicates: 1,
+            reportDate: new Date(),
             formInstanceId: formInstance.id,
+            formUrl: formInstance.standAloneFormUrl,
         }
 
         assert(this._templates, 'Email templates are required')
@@ -156,20 +232,34 @@ export class MessagingService {
      * Send report email with potential duplicate accounts
      */
     public async sendReport(report: FusionReport, fusionAccount?: FusionAccount): Promise<void> {
-        // Get recipient email from fusion account if provided
-        const recipientEmails: string[] = []
+        // Recipients:
+        // - the initiating fusion account (if we can resolve an email)
+        // - the fusion source owner (always)
+        const recipientEmails = new Set<string>()
 
         if (fusionAccount?.email) {
-            recipientEmails.push(fusionAccount.email)
-        } else if (fusionAccount && this.identities) {
-            // Try to get email from identity
+            recipientEmails.add(fusionAccount.email)
+        } else if (fusionAccount && this.identities && fusionAccount.identityId) {
+            // Try to get email from identity (only if identityId exists)
             const identity = this.identities.getIdentityById(fusionAccount.identityId)
             if (identity?.attributes?.email) {
-                recipientEmails.push(identity.attributes.email)
+                recipientEmails.add(identity.attributes.email)
             }
         }
 
-        if (recipientEmails.length === 0) {
+        // Always add the fusion source owner (resolved via IdentityService)
+        let ownerId: string | undefined
+        try {
+            ownerId = this.sources.fusionSourceOwner?.id
+        } catch {
+            ownerId = undefined
+        }
+        if (ownerId && this.identities) {
+            const ownerEmails = await this.getRecipientEmails([ownerId])
+            for (const e of ownerEmails) recipientEmails.add(e)
+        }
+
+        if (recipientEmails.size === 0) {
             this.log.warn('No recipient email found for report')
             return
         }
@@ -181,12 +271,12 @@ export class MessagingService {
             potentialDuplicates:
                 report.potentialDuplicates || report.accounts.filter((a) => a.matches.length > 0).length,
             reportDate: report.reportDate || new Date(),
-            accountName: fusionAccount?.name || fusionAccount?.displayName,
         }
         const body = renderFusionReport(this._templates, emailData)
 
-        await this.sendEmail(recipientEmails, subject, body)
-        this.log.info(`Sent fusion report email to ${recipientEmails.length} recipient(s)`)
+        const recipients = Array.from(recipientEmails)
+        await this.sendEmail(recipients, subject, body)
+        this.log.info(`Sent fusion report email to ${recipients.length} recipient(s)`)
     }
 
     // ------------------------------------------------------------------------
@@ -211,7 +301,11 @@ export class MessagingService {
      */
     private async sendEmail(recipients: string[], subject: string, body: string): Promise<void> {
         assert(recipients, 'Recipients array is required')
-        assert(recipients.length > 0, 'At least one recipient is required')
+        const sanitizedRecipients = recipients
+            .filter((r) => typeof r === 'string')
+            .map((r) => r.trim())
+            .filter((r) => r.length > 0)
+        assert(sanitizedRecipients.length > 0, 'At least one recipient is required')
         assert(subject, 'Email subject is required')
         assert(body, 'Email body is required')
 
@@ -223,26 +317,30 @@ export class MessagingService {
             input: {
                 subject,
                 body,
-                recipients,
+                recipients: sanitizedRecipients,
             },
         }
-
         const requestParameters: WorkflowsV2025ApiTestWorkflowRequest = {
             id: workflow.id,
             testWorkflowRequestV2025: testRequest,
         }
 
-        this.log.debug(`Sending email to ${recipients.length} recipient(s) via workflow ${workflow.id}`)
-        const response = await this.testWorkflow(requestParameters)
-        assert(response, 'Workflow response is required')
-        softAssert(response.status === 200, `Failed to send email - received status ${response.status}`, 'error')
+        this.log.debug(`Sending email to ${sanitizedRecipients.length} recipient(s) via workflow ${workflow.id}`)
+        try {
+            const response = await this.testWorkflow(requestParameters)
+            assert(response, 'Workflow response is required')
+            softAssert(response.status === 200, `Failed to send email - received status ${response.status}`, 'error')
+        } catch (e) {
+            // Never crash aggregation because email delivery failed.
+            this.log.error(`Failed to execute email workflow ${workflow.id}: ${e}`)
+        }
     }
 
     /**
      * Get email addresses for recipient identity IDs
      */
     private async getRecipientEmails(identityIds: (string | undefined)[]): Promise<string[]> {
-        const emails: string[] = []
+        const emails = new Set<string>()
 
         for (const identityId of identityIds) {
             if (!identityId) {
@@ -254,15 +352,89 @@ export class MessagingService {
                 continue
             }
 
-            const identity = this.identities.getIdentityById(identityId)
-            if (identity?.attributes?.email) {
-                emails.push(identity.attributes.email)
+            let identity = this.identities.getIdentityById(identityId)
+            if (!identity) {
+                try {
+                    identity = await this.identities.fetchIdentityById(identityId)
+                } catch (e) {
+                    this.log.warn(`Failed to fetch identity ${identityId}: ${e}`)
+                }
+            }
+
+            const attrs: any = identity?.attributes ?? {}
+            const emailValue = attrs.email ?? attrs.mail ?? attrs.emailAddress
+            const normalized = this.normalizeEmailValue(emailValue)
+
+            if (normalized.length > 0) {
+                normalized.forEach((e) => emails.add(e))
             } else {
                 this.log.warn(`No email found for identity ${identityId}`)
             }
         }
 
-        return emails
+        return Array.from(emails)
+    }
+
+    /**
+     * Normalize identity "email" attribute(s) into array of strings.
+     * ISC tenants sometimes store email as a string, array, or nested object.
+     */
+    private normalizeEmailValue(value: any): string[] {
+        if (!value) return []
+
+        if (typeof value === 'string') {
+            const v = value.trim()
+            return v ? [v] : []
+        }
+
+        if (Array.isArray(value)) {
+            const out: string[] = []
+            for (const item of value) {
+                out.push(...this.normalizeEmailValue(item))
+            }
+            return out
+        }
+
+        if (typeof value === 'object') {
+            const maybe = (value as any).value ?? (value as any).email ?? (value as any).mail
+            return this.normalizeEmailValue(maybe)
+        }
+
+        return []
+    }
+
+    /**
+     * Disable workflow when enabled to allow testWorkflow execution.
+     */
+    private async disableWorkflowIfEnabled(workflow: WorkflowV2025): Promise<void> {
+        try {
+            const enabled = (workflow as any)?.enabled
+            if (enabled === false) return
+            if (!workflow.id) return
+
+            const { workflowsApi } = this.client
+            const patchFnAny: any = (workflowsApi as any)?.patchWorkflow
+            if (typeof patchFnAny !== 'function') {
+                this.log.debug(`patchWorkflow not available in SDK; cannot disable workflow ${workflow.id}`)
+                return
+            }
+
+            const requestParameters: any = {
+                id: workflow.id,
+                jsonPatchOperationV2025: [{ op: 'replace', path: '/enabled', value: false }],
+            }
+
+            const patchCall = async () => {
+                const resp = await patchFnAny.call(workflowsApi, requestParameters)
+                return (resp as any)?.data ?? resp
+            }
+
+            await this.client.execute(patchCall)
+            this.log.info(`Disabled workflow ${workflow.id} to allow test execution`)
+        } catch (e) {
+            // If we can't disable it, testWorkflow may fail with 400.
+            this.log.warn(`Failed to disable workflow ${workflow.id}: ${e}`)
+        }
     }
 
     // ------------------------------------------------------------------------

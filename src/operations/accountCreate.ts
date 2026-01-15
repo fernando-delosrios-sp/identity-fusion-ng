@@ -1,7 +1,6 @@
 import { AttributeChangeOp, Response, StdAccountCreateInput, StdAccountCreateOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { assert } from '../utils/assert'
-import { resetAction } from './actions/resetAction'
 import { reportAction } from './actions/reportAction'
 import { fusionAction } from './actions/fusionAction'
 import { correlateAction } from './actions/correlateAction'
@@ -45,9 +44,6 @@ export const accountCreate = async (
         for (const action of actions) {
             log.debug(`Processing action: ${action}`)
             switch (action) {
-                case 'reset':
-                    await resetAction(fusionIdentity, AttributeChangeOp.Add)
-                    break
                 case 'report':
                     await reportAction(fusionIdentity, AttributeChangeOp.Add)
                     break

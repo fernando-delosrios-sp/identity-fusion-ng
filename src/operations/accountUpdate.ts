@@ -2,7 +2,6 @@ import { Response, StdAccountUpdateInput, StdAccountUpdateOutput } from '@sailpo
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { fetchFusionAccount } from './helpers/fetchFusionAccount'
 import { assert } from '../utils/assert'
-import { resetAction } from './actions/resetAction'
 import { reportAction } from './actions/reportAction'
 import { fusionAction } from './actions/fusionAction'
 import { correlateAction } from './actions/correlateAction'
@@ -44,9 +43,6 @@ export const accountUpdate = async (
                     log.debug(`Processing action: ${action} with operation: ${change.op}`)
 
                     switch (action) {
-                        case 'reset':
-                            await resetAction(fusionAccount, change.op)
-                            break
                         case 'report':
                             await reportAction(fusionAccount, change.op)
                             break

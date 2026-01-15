@@ -8,35 +8,19 @@ const internalConfig = {
     tokenUrlPath: '/oauth/token',
     processingWaitConstant: 60 * 1000,
     retriesConstant: 20,
-    workflowName: 'Email Sender',
-    transformName: 'Fusion Transform',
+    workflowName: 'Fusion Email Sender',
     padding: '   ',
     msDay: 86400000,
     identityNotFoundWait: 5000,
     identityNotFoundRetries: 5,
     separator: ' | ',
-    fusionFormNamePattern: 'Identity Fusion',
-    reservedAttributes: [
-        'uuid',
-        'name',
-        'history',
-        'statuses',
-        'actions',
-        'reviews',
-        'accounts',
-        'missing-accounts',
-        'IIQDisabled',
-        'IIQLocked',
-        'idNowDescription',
-        'enabled',
-    ],
+    fusionFormNamePattern: 'Fusion Review',
     nonAggregableTypes: ['DelimitedFile'],
     concurrency: {
         uncorrelatedAccounts: 500,
         processAccounts: 50,
         correlateAccounts: 25,
     },
-    newIdentityDecision: 'This is a new identity',
     fusionAccountRefreshThresholdInSeconds: 60,
 }
 
@@ -145,7 +129,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
             'Fusion average score must be between 0 and 100'
         )
 
-        config.getScore = (attribute?: string): number => {
+        config.getScore = (): number => {
             return config.fusionAverageScore!
         }
         logger.debug(`Using average fusion score: ${config.fusionAverageScore}`)

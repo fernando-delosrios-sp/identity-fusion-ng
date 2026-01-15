@@ -17,164 +17,178 @@ export const FUSION_REVIEW_TEMPLATE = `
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background-color: #ffffff;
-            border-radius: 8px;
-            padding: 30px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .header {
-            border-bottom: 3px solid #0066cc;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        .header h1 {
-            color: #0066cc;
+            max-width: none;
             margin: 0;
-            font-size: 24px;
-        }
-        .section {
-            margin-bottom: 25px;
-        }
-        .section-title {
-            color: #0066cc;
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 15px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #e0e0e0;
-        }
-        .info-row {
-            display: flex;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        .info-label {
-            font-weight: 600;
-            color: #666;
-            min-width: 120px;
-        }
-        .info-value {
-            color: #333;
-            flex: 1;
-        }
-        .candidates-list {
-            list-style: none;
             padding: 0;
-            margin: 0;
+            background: linear-gradient(180deg, #f3f6fb 0%, #ffffff 100%);
         }
-        .candidate-item {
-            background-color: #f8f9fa;
-            border-left: 4px solid #0066cc;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-        }
-        .candidate-name {
-            font-weight: 600;
-            color: #0066cc;
-            margin-bottom: 5px;
-        }
-        .candidate-id {
-            color: #666;
-            font-size: 14px;
-        }
-        .footer {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 2px solid #e0e0e0;
-            color: #666;
-            font-size: 14px;
-            text-align: center;
-        }
-        .button {
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #0066cc;
-            color: #ffffff;
-            text-decoration: none;
-            border-radius: 4px;
-            margin-top: 20px;
-            font-weight: 600;
-        }
-        .no-candidates {
-            color: #999;
-            font-style: italic;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
+
+        /* Responsive stacking for main + match columns */
+        @media only screen and (max-width:600px) {
+            .main-col,
+            .match-col {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Identity Fusion Review Required</h1>
-        </div>
+<body style="margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; background:#f3f6fb;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" style="width:100%; border-collapse:collapse;">
+        <tr>
+            <td align="center" style="padding:0 16px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                    <tr>
+                        <td style="padding:12px 0;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:separate; border-spacing:0; background:#ffffff; border:1px solid #e6ebf5; border-radius:14px; box-shadow:0 12px 30px rgba(16,24,40,0.12);">
+                                <tr>
+                                    <td style="padding:20px;">
+                                        <div style="padding-bottom:18px; margin-bottom:22px; border-bottom:1px solid #e6ebf5;">
+                                            <div style="margin-bottom:12px;">
+                                                <h1 style="margin:0; color:#0b5cab; font-size:26px; letter-spacing:-0.2px;">Identity Fusion Review Required</h1>
+                                                <div style="color:#5f6b7a; font-size:13px; margin-top:6px;">
+                                                    Please review the potential duplicate and take appropriate action.
+                                                </div>
+                                                {{#each accounts}}
+                                                {{#if accountSource}}
+                                                <div style="color:#5f6b7a; font-size:12px; margin-top:8px; font-weight:600;">
+                                                    Source: <span style="color:#0b5cab;">{{accountSource}}</span>
+                                                </div>
+                                                {{/if}}
+                                                {{/each}}
+                                                {{#if formUrl}}
+                                                <div style="margin-top:12px;">
+                                                    <a href="{{formUrl}}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#0b5cab; color:#ffffff; font-weight:900; font-size:13px; text-decoration:none;">
+                                                        Open Review Form
+                                                    </a>
+                                                </div>
+                                                {{/if}}
+                                            </div>
+                                            <!-- No "potential duplicates" count in review email -->
+                                        </div>
 
-        <div class="section">
-            <div class="section-title">Account Information</div>
-            <div class="info-row">
-                <div class="info-label">Name:</div>
-                <div class="info-value">{{accountName}}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Source:</div>
-                <div class="info-value">{{accountSource}}</div>
-            </div>
-            {{#each accountAttributes}}
-            <div class="info-row">
-                <div class="info-label">{{@key}}:</div>
-                <div class="info-value">{{formatAttribute this}}</div>
-            </div>
-            {{/each}}
-        </div>
+                                        {{#each accounts}}
+                                        <div style="margin-bottom:28px; border:1px solid #e6ebf5; border-radius:14px; padding:18px; background:#ffffff; box-shadow:0 10px 24px rgba(16,24,40,0.08);">
+                                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                                                <tr>
+                                                    <!-- Left: duplicate account summary -->
+                                                    <td class="main-col" valign="top" width="40%" style="width:40%; vertical-align:top; padding:8px; border-right:1px solid #eef2f7;">
+                                                        <div style="color:#0b5cab; font-size:18px; font-weight:800; margin:0 0 6px 0;">{{accountName}}</div>
+                                                        <div style="font-size:12px; color:#5f6b7a; margin-bottom:10px;">
+                                                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                                                                <tr>
+                                                                    <td style="font-weight:800; white-space:nowrap; padding:2px 8px 2px 0;">Source:</td>
+                                                                    <td style="padding:2px 8px;">{{accountSource}}</td>
+                                                                </tr>
+                                                                {{#if accountId}}
+                                                                <tr>
+                                                                    <td style="font-weight:800; white-space:nowrap; padding:2px 8px 2px 0;">ID:</td>
+                                                                    <td style="padding:2px 8px; white-space:nowrap; word-break:keep-all;">{{accountId}}</td>
+                                                                </tr>
+                                                                {{/if}}
+                                                                {{#if accountEmail}}
+                                                                <tr>
+                                                                    <td style="font-weight:800; white-space:nowrap; padding:2px 8px 2px 0;">Email:</td>
+                                                                    <td style="padding:2px 8px; word-break:break-all;">{{accountEmail}}</td>
+                                                                </tr>
+                                                                {{/if}}
+                                                            </table>
+                                                        </div>
 
-        <div class="section">
-            <div class="section-title">Potential Matches</div>
-            {{#if candidates}}
-                {{#if (gt candidates.length 0)}}
-                    <ul class="candidates-list">
-                        {{#each candidates}}
-                        <li class="candidate-item">
-                            <div class="candidate-name">{{name}}</div>
-                            <div class="candidate-id">ID: {{id}}</div>
-                            {{#if scores}}
-                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
-                                Scores: {{formatScores scores}}
-                            </div>
-                            {{/if}}
-                        </li>
-                        {{/each}}
-                    </ul>
-                {{else}}
-                    <div class="no-candidates">No potential matches found.</div>
-                {{/if}}
-            {{else}}
-                <div class="no-candidates">No potential matches found.</div>
-            {{/if}}
-        </div>
+                                                        {{#if accountAttributes}}
+                                                        <div style="color:#0b5cab; font-size:12px; font-weight:900; letter-spacing:0.35px; text-transform:uppercase; margin:12px 0 8px 0;">Attributes</div>
+                                                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                                                            {{#each accountAttributes}}
+                                                            <tr>
+                                                                <td style="padding:6px 8px; font-size:12px; color:#5f6b7a; font-weight:700; border:1px solid #eef2f7; background:#f8fbff; width:40%;">{{@key}}</td>
+                                                                <td style="padding:6px 8px; font-size:12px; color:#0f172a; border:1px solid #eef2f7;">{{formatAttribute this}}</td>
+                                                            </tr>
+                                                            {{/each}}
+                                                        </table>
+                                                        {{/if}}
+                                                    </td>
 
-        <div class="section">
-            <p style="color: #333; margin: 0;">
-                Please review this account and decide whether to create a new identity or link it to an existing one.
-            </p>
-            {{#if formInstanceId}}
-            <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                Form Instance ID: <code>{{formInstanceId}}</code>
-            </p>
-            {{/if}}
-        </div>
+                                                    <!-- Right: matches (report-style) -->
+                                                    <td class="main-col" valign="top" width="60%" style="width:60%; vertical-align:top; padding:8px;">
+                                                        {{#if matches}}
+                                                        {{#if (gt matches.length 0)}}
+                                                        {{#each (chunk matches 2)}}
+                                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+                                                            <tr>
+                                                                {{#each this}}
+                                                                <td class="match-col" valign="top" width="50%" style="width:50%; vertical-align:top; padding:4px;">
+                                                                    {{#if this}}
+                                                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; table-layout:fixed;">
+                                                                        <tr>
+                                                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase;">
+                                                                                Potential Matches
+                                                                            </td>
+                                                                        </tr>
+                                                                        <tr>
+                                                                            <td colspan="4" style="padding:4px 8px;">
+                                                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2;">
+                                                                                    {{#if identityUrl}}
+                                                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline;">{{identityName}}</a>
+                                                                                    {{else}}
+                                                                                    {{identityName}}
+                                                                                    {{/if}}
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                        {{#if scores}}
+                                                                        <tr>
+                                                                            <th style="text-align:left; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Attribute</th>
+                                                                            <th style="text-align:left; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Algorithm</th>
+                                                                            <th style="text-align:right; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Score</th>
+                                                                            <th style="text-align:right; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Threshold</th>
+                                                                        </tr>
+                                                                        {{#each scores}}
+                                                                        <tr style="background:{{#if (isAverageScoreRow attribute algorithm)}}#e0f2fe{{else}}{{#if isMatch}}#f0fdf4{{else}}#fef2f2{{/if}}{{/if}};">
+                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900; white-space:nowrap;{{/if}}">{{attribute}}</td>
+                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{algorithmLabel algorithm}}</td>
+                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-weight:900; white-space:nowrap; font-size:11px;">{{score}}%</td>
+                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; white-space:nowrap; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{fusionScore}}%</td>
+                                                                        </tr>
+                                                                        {{/each}}
+                                                                        {{/if}}
+                                                                    </table>
+                                                                    {{else}}
+                                                                    &nbsp;
+                                                                    {{/if}}
+                                                                </td>
+                                                                {{/each}}
+                                                            </tr>
+                                                        </table>
+                                                        {{/each}}
+                                                        {{else}}
+                                                        <div style="color:#999; font-style:italic; padding:14px; background-color:#f8f9fa; border-radius:4px; text-align:center;">
+                                                            No potential matches found for this account.
+                                                        </div>
+                                                        {{/if}}
+                                                        {{else}}
+                                                        <div style="color:#999; font-style:italic; padding:14px; background-color:#f8f9fa; border-radius:4px; text-align:center;">
+                                                            No potential matches found for this account.
+                                                        </div>
+                                                        {{/if}}
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </div>
+                                        {{/each}}
 
-        <div class="footer">
-            <p style="margin: 0;">Thank you,<br>Identity Fusion Connector</p>
-        </div>
-    </div>
+                                        <div style="margin-top:28px; padding-top:18px; border-top:1px solid #e6ebf5; color:#5f6b7a; font-size:13px; text-align:center;">
+                                            This review was generated by the Identity Fusion NG Connector.
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 `
@@ -197,60 +211,97 @@ export const FUSION_REPORT_TEMPLATE = `
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
+            max-width: none;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(180deg, #f3f6fb 0%, #ffffff 100%);
         }
         .container {
             background-color: #ffffff;
-            border-radius: 8px;
-            padding: 30px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 14px;
+            padding: 32px;
+            box-shadow: 0 12px 30px rgba(16, 24, 40, 0.12);
+            border: 1px solid #e6ebf5;
         }
         .header {
-            border-bottom: 3px solid #0066cc;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            padding-bottom: 18px;
+            margin-bottom: 22px;
+            border-bottom: 1px solid #e6ebf5;
         }
         .header h1 {
-            color: #0066cc;
+            color: #0b5cab;
             margin: 0;
-            font-size: 24px;
+            font-size: 26px;
+            letter-spacing: -0.2px;
+        }
+        .header-subtitle {
+            color: #5f6b7a;
+            font-size: 13px;
+            margin-top: 6px;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            background: #eef6ff;
+            color: #0b5cab;
+            border: 1px solid #d6e8ff;
+            white-space: nowrap;
+        }
+        .pill strong {
+            font-size: 13px;
         }
         .summary {
-            background-color: #f8f9fa;
-            border-left: 4px solid #0066cc;
-            padding: 15px;
-            margin-bottom: 30px;
-            border-radius: 4px;
+            margin-bottom: 26px;
         }
-        .summary-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+        .summary-card {
+            border: 1px solid #e6ebf5;
+            border-radius: 12px;
+            padding: 14px 14px 12px 14px;
+            background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+            box-shadow: 0 6px 16px rgba(16, 24, 40, 0.06);
         }
         .summary-label {
-            font-weight: 600;
-            color: #666;
+            font-size: 12px;
+            color: #5f6b7a;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
         }
         .summary-value {
-            color: #333;
+            color: #0f172a;
+            font-size: 16px;
+            font-weight: 700;
         }
         .account-section {
             margin-bottom: 40px;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 20px;
-            background-color: #fafafa;
+            border: 1px solid #e6ebf5;
+            border-radius: 14px;
+            padding: 22px;
+            background-color: #ffffff;
+            box-shadow: 0 10px 24px rgba(16, 24, 40, 0.08);
         }
         .account-header {
-            border-bottom: 2px solid #0066cc;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
+            border-bottom: 1px solid #e6ebf5;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
         }
         .account-name {
-            color: #0066cc;
+            color: #0b5cab;
             font-size: 20px;
             font-weight: 600;
             margin: 0 0 10px 0;
@@ -260,7 +311,7 @@ export const FUSION_REPORT_TEMPLATE = `
             flex-wrap: wrap;
             gap: 20px;
             font-size: 14px;
-            color: #666;
+            color: #5f6b7a;
         }
         .account-info-item {
             display: flex;
@@ -273,31 +324,47 @@ export const FUSION_REPORT_TEMPLATE = `
             margin-bottom: 25px;
         }
         .section-title {
-            color: #0066cc;
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 15px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #e0e0e0;
+            color: #0b5cab;
+            font-size: 13px;
+            font-weight: 800;
+            margin-bottom: 12px;
+            letter-spacing: 0.35px;
+            text-transform: uppercase;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e6ebf5;
         }
         .match-item {
             background-color: #ffffff;
-            border: 1px solid #e0e0e0;
-            border-left: 4px solid #0066cc;
-            padding: 20px;
+            border: 1px solid #e6ebf5;
+            border-left: 6px solid #c7d2fe;
+            padding: 18px;
             margin-bottom: 20px;
-            border-radius: 4px;
+            border-radius: 12px;
+            box-shadow: 0 8px 18px rgba(16, 24, 40, 0.06);
+        }
+        .match-item.match {
+            border-left-color: #22c55e;
+        }
+        .match-item.no-match {
+            border-left-color: #ef4444;
         }
         .match-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
+            gap: 12px;
+            flex-wrap: wrap;
         }
         .match-name {
             font-size: 18px;
             font-weight: 600;
-            color: #0066cc;
+            color: #0b5cab;
+        }
+        .match-subtitle {
+            font-size: 13px;
+            color: #5f6b7a;
+            margin-top: 4px;
         }
         .match-status {
             padding: 5px 12px;
@@ -307,32 +374,40 @@ export const FUSION_REPORT_TEMPLATE = `
             text-transform: uppercase;
         }
         .match-status.match {
-            background-color: #d4edda;
-            color: #155724;
+            background-color: #dcfce7;
+            color: #166534;
         }
         .match-status.no-match {
-            background-color: #f8d7da;
-            color: #721c24;
+            background-color: #fee2e2;
+            color: #991b1b;
         }
         .scores-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 15px;
+            /* Prevent narrow email clients from wrapping the table into unreadable multi-lines */
+            display: block;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid #e6ebf5;
+            border-radius: 10px;
         }
         .scores-table th {
-            background-color: #f8f9fa;
+            background-color: #f6f8ff;
             padding: 10px;
             text-align: left;
             font-weight: 600;
-            color: #666;
-            border-bottom: 2px solid #e0e0e0;
+            color: #5f6b7a;
+            border-bottom: 1px solid #e6ebf5;
+            white-space: nowrap;
         }
         .scores-table td {
             padding: 10px;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid #eef2f7;
+            white-space: nowrap;
         }
         .scores-table tr:hover {
-            background-color: #f8f9fa;
+            background-color: #f8fbff;
         }
         .score-value {
             font-weight: 600;
@@ -355,12 +430,12 @@ export const FUSION_REPORT_TEMPLATE = `
             text-transform: uppercase;
         }
         .match-badge.yes {
-            background-color: #d4edda;
-            color: #155724;
+            background-color: #dcfce7;
+            color: #166534;
         }
         .match-badge.no {
-            background-color: #f8d7da;
-            color: #721c24;
+            background-color: #fee2e2;
+            color: #991b1b;
         }
         .no-matches {
             color: #999;
@@ -373,8 +448,8 @@ export const FUSION_REPORT_TEMPLATE = `
         .footer {
             margin-top: 40px;
             padding-top: 20px;
-            border-top: 2px solid #e0e0e0;
-            color: #666;
+            border-top: 1px solid #e6ebf5;
+            color: #5f6b7a;
             font-size: 14px;
             text-align: center;
         }
@@ -386,143 +461,175 @@ export const FUSION_REPORT_TEMPLATE = `
         }
         .attribute-item {
             padding: 8px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
+            background-color: #f8fbff;
+            border-radius: 10px;
             font-size: 13px;
+            border: 1px solid #eef2f7;
         }
         .attribute-label {
             font-weight: 600;
-            color: #666;
+            color: #5f6b7a;
             margin-bottom: 3px;
         }
         .attribute-value {
-            color: #333;
+            color: #0f172a;
+        }
+
+        /* Responsive stacking for the 3 match columns */
+        @media only screen and (max-width:600px) {
+            .match-col {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Identity Fusion Report</h1>
+<body style="margin:0; padding:0; overflow-x:auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; background:#f3f6fb;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:collapse; width:auto; white-space:normal;">
+        <tr>
+            <td align="center" style="padding:0 16px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; width:auto;">
+                    <tr>
+                        <td style="padding:12px 0;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:separate; border-spacing:0; background:#ffffff; border:1px solid #e6ebf5; border-radius:14px; box-shadow:0 12px 30px rgba(16,24,40,0.12);">
+                                <tr>
+                                    <td style="padding:20px;">
+        <div class="header" style="padding-bottom:18px; margin-bottom:22px; border-bottom:1px solid #e6ebf5;">
+            <div style="margin-bottom:12px;">
+                <h1 style="margin:0; color:#0b5cab; font-size:26px; letter-spacing:-0.2px;">Identity Fusion Report</h1>
+                <div class="header-subtitle" style="color:#5f6b7a; font-size:13px; margin-top:6px;">
+                    A curated view of potential duplicates and the scoring evidence behind them.
+                </div>
+            </div>
+            <div class="pill" style="display:inline-block; padding:8px 12px; border-radius:999px; background:#eef6ff; color:#0b5cab; border:1px solid #d6e8ff; font-weight:700; font-size:12px;">
+                Potential duplicates <strong style="font-size:13px;">{{potentialDuplicates}}</strong>
+            </div>
         </div>
 
-        <div class="summary">
-            <div class="summary-item">
-                <span class="summary-label">Report Date:</span>
-                <span class="summary-value">{{formatDate reportDate}}</span>
-            </div>
-            <div class="summary-item">
-                <span class="summary-label">Total Accounts Analyzed:</span>
-                <span class="summary-value">{{totalAccounts}}</span>
-            </div>
-            <div class="summary-item">
-                <span class="summary-label">Potential Duplicates Found:</span>
-                <span class="summary-value">{{potentialDuplicates}}</span>
-            </div>
-            {{#if accountName}}
-            <div class="summary-item">
-                <span class="summary-label">Account:</span>
-                <span class="summary-value">{{accountName}}</span>
-            </div>
-            {{/if}}
+        <div class="summary" style="margin-bottom:18px;">
+            <!-- Use an email-safe table so the summary uses horizontal space.
+                 Potential duplicates count is already shown in the header pill. -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                <tr>
+                    <td width="50%" style="width:50%; padding:6px;">
+                        <div style="border:1px solid #e6ebf5; border-radius:12px; padding:12px; background:#fbfcff; box-shadow:0 6px 16px rgba(16,24,40,0.06);">
+                            <div style="font-size:12px; color:#5f6b7a; font-weight:800; letter-spacing:0.3px; text-transform:uppercase; margin-bottom:6px;">Report Date</div>
+                            <div style="color:#0f172a; font-size:16px; font-weight:900;">{{formatDate reportDate}}</div>
+                        </div>
+                    </td>
+                    <td width="50%" style="width:50%; padding:6px;">
+                        <div style="border:1px solid #e6ebf5; border-radius:12px; padding:12px; background:#fbfcff; box-shadow:0 6px 16px rgba(16,24,40,0.06);">
+                            <div style="font-size:12px; color:#5f6b7a; font-weight:800; letter-spacing:0.3px; text-transform:uppercase; margin-bottom:6px;">Total Accounts Analyzed</div>
+                            <div style="color:#0f172a; font-size:16px; font-weight:900;">{{totalAccounts}}</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
         </div>
 
         {{#each accounts}}
-        <div class="account-section">
-            <div class="account-header">
-                <div class="account-name">{{accountName}}</div>
-                <div class="account-info">
-                    <div class="account-info-item">
-                        <span class="account-info-label">Source:</span>
-                        <span>{{accountSource}}</span>
-                    </div>
-                    {{#if accountId}}
-                    <div class="account-info-item">
-                        <span class="account-info-label">ID:</span>
-                        <span>{{accountId}}</span>
-                    </div>
-                    {{/if}}
-                    {{#if accountEmail}}
-                    <div class="account-info-item">
-                        <span class="account-info-label">Email:</span>
-                        <span>{{accountEmail}}</span>
-                    </div>
-                    {{/if}}
-                </div>
-            </div>
-
-            {{#if accountAttributes}}
-            <div class="section">
-                <div class="section-title">Account Attributes</div>
-                <div class="attributes-grid">
-                    {{#each accountAttributes}}
-                    <div class="attribute-item">
-                        <div class="attribute-label">{{@key}}</div>
-                        <div class="attribute-value">{{formatAttribute this}}</div>
-                    </div>
-                    {{/each}}
-                </div>
-            </div>
-            {{/if}}
-
-            <div class="section">
-                <div class="section-title">Potential Matches</div>
-                {{#if matches}}
-                    {{#if (gt matches.length 0)}}
-                        {{#each matches}}
-                        <div class="match-item">
-                            <div class="match-header">
-                                <div class="match-name">{{identityName}}</div>
-                                <span class="match-status {{#if isMatch}}match{{else}}no-match{{/if}}">
-                                    {{#if isMatch}}Match{{else}}No Match{{/if}}
-                                </span>
-                            </div>
-                            {{#if identityId}}
-                            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">
-                                Identity ID: {{identityId}}
-                            </div>
-                            {{/if}}
-                            {{#if scores}}
-                            <table class="scores-table">
-                                <thead>
-                                    <tr>
-                                        <th>Attribute</th>
-                                        <th>Algorithm</th>
-                                        <th>Score</th>
-                                        <th>Threshold</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each scores}}
-                                    <tr>
-                                        <td>{{attribute}}</td>
-                                        <td>{{algorithm}}</td>
-                                        <td>
-                                            <span class="score-value {{#if (gte score 80)}}high{{else}}{{#if (gte score 50)}}medium{{else}}low{{/if}}{{/if}}">
-                                                {{score}}%
-                                            </span>
-                                        </td>
-                                        <td>{{fusionScore}}%</td>
-                                        <td>
-                                            <span class="match-badge {{#if isMatch}}yes{{else}}no{{/if}}">
-                                                {{#if isMatch}}Match{{else}}No Match{{/if}}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    {{/each}}
-                                </tbody>
+        <div class="account-section" style="margin-bottom:28px; border:1px solid #e6ebf5; border-radius:14px; padding:18px; background:#ffffff; box-shadow:0 10px 24px rgba(16,24,40,0.08);">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:separate; border-spacing:0;">
+                <tr>
+                    <!-- Left: duplicate account summary -->
+                    <td style="width:24%; vertical-align:top; padding-right:14px; border-right:1px solid #eef2f7;">
+                        <div style="color:#0b5cab; font-size:18px; font-weight:800; margin:0 0 6px 0;">{{accountName}}</div>
+                        <div style="font-size:12px; color:#5f6b7a; margin-bottom:10px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                                <tr>
+                                    <td style="font-weight:800; white-space:nowrap; padding:2px 8px 2px 0;">Source:</td>
+                                    <td style="padding:2px 8px;">{{accountSource}}</td>
+                                </tr>
+                                {{#if accountId}}
+                                <tr>
+                                    <td style="font-weight:800; white-space:nowrap; padding:2px 8px 2px 0;">ID:</td>
+                                    <td style="padding:2px 8px; white-space:nowrap; word-break:keep-all;">{{accountId}}</td>
+                                </tr>
+                                {{/if}}
+                                {{#if accountEmail}}
+                                <tr>
+                                    <td style="font-weight:800; white-space:nowrap; padding:2px 8px 2px 0;">Email:</td>
+                                    <td style="padding:2px 8px; word-break:break-all;">{{accountEmail}}</td>
+                                </tr>
+                                {{/if}}
                             </table>
-                            {{/if}}
                         </div>
+
+                        {{#if accountAttributes}}
+                        <div style="color:#0b5cab; font-size:12px; font-weight:900; letter-spacing:0.35px; text-transform:uppercase; margin:12px 0 8px 0;">Attributes</div>
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                            {{#each accountAttributes}}
+                            <tr>
+                                <td style="padding:6px 8px; font-size:12px; color:#5f6b7a; font-weight:700; border:1px solid #eef2f7; background:#f8fbff; width:40%;">{{@key}}</td>
+                                <td style="padding:6px 8px; font-size:12px; color:#0f172a; border:1px solid #eef2f7;">{{formatAttribute this}}</td>
+                            </tr>
+                            {{/each}}
+                        </table>
+                        {{/if}}
+                    </td>
+
+                    <!-- Right: candidates horizontally -->
+                    <td style="width:76%; vertical-align:top; padding-left:14px;">
+                        {{#if matches}}
+                        {{#if (gt matches.length 0)}}
+                        {{#each (chunk matches 3)}}
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+                            <tr>
+                                {{#each this}}
+                                <td class="match-col" valign="top" width="33.33%" style="width:33.33%; vertical-align:top; padding:6px;">
+                                    {{#if this}}
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; table-layout:fixed;">
+                                        <tr>
+                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase;">
+                                                Potential Matches
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td colspan="4" style="padding:4px 8px;">
+                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2;">
+                                                    {{#if identityUrl}}
+                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline;">{{identityName}}</a>
+                                                    {{else}}
+                                                    {{identityName}}
+                                                    {{/if}}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {{#if scores}}
+                                        <tr>
+                                            <th style="text-align:left; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Attribute</th>
+                                            <th style="text-align:left; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Algorithm</th>
+                                            <th style="text-align:right; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Score</th>
+                                            <th style="text-align:right; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Threshold</th>
+                                        </tr>
+                                        {{#each scores}}
+                                        <tr style="background:{{#if (isAverageScoreRow attribute algorithm)}}#e0f2fe{{else}}{{#if isMatch}}#f0fdf4{{else}}#fef2f2{{/if}}{{/if}};">
+                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900; white-space:nowrap;{{/if}}">{{attribute}}</td>
+                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{algorithmLabel algorithm}}</td>
+                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-weight:900; white-space:nowrap; font-size:11px;">{{score}}%</td>
+                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; text-align:right; white-space:nowrap; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{fusionScore}}%</td>
+                                        </tr>
+                                        {{/each}}
+                                        {{/if}}
+                                    </table>
+                                    {{else}}
+                                    &nbsp;
+                                    {{/if}}
+                                </td>
+                                {{/each}}
+                            </tr>
+                        </table>
                         {{/each}}
-                    {{else}}
-                        <div class="no-matches">No potential matches found for this account.</div>
-                    {{/if}}
-                {{else}}
-                    <div class="no-matches">No potential matches found for this account.</div>
-                {{/if}}
-            </div>
+                        {{else}}
+                        <div style="color:#999; font-style:italic; padding:20px; background-color:#f8f9fa; border-radius:4px; text-align:center;">No potential matches found for this account.</div>
+                        {{/if}}
+                        {{else}}
+                        <div style="color:#999; font-style:italic; padding:20px; background-color:#f8f9fa; border-radius:4px; text-align:center;">No potential matches found for this account.</div>
+                        {{/if}}
+                    </td>
+                </tr>
+            </table>
         </div>
         {{/each}}
 
@@ -532,13 +639,21 @@ export const FUSION_REPORT_TEMPLATE = `
         </div>
         {{/unless}}
 
-        <div class="footer">
+        <div class="footer" style="margin-top:28px; padding-top:18px; border-top:1px solid #e6ebf5; color:#5f6b7a; font-size:13px; text-align:center;">
             <p style="margin: 0;">
-                This report was generated by the Identity Fusion Connector.<br>
+                This report was generated by the Identity Fusion NG Connector.<br>
                 Please review the potential duplicates and take appropriate action.
             </p>
         </div>
-    </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 `

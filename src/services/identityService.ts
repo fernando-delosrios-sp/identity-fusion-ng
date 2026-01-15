@@ -83,7 +83,7 @@ export class IdentityService {
         const query: Search = {
             indices: ['identities'],
             query: {
-                query: `id.exact:"${id}"`,
+                query: `id:"${id}"`,
             },
             includeNested: true,
         }

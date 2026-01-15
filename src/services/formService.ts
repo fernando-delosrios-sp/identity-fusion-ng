@@ -11,7 +11,6 @@ import {
     CustomFormsV2025ApiPatchFormInstanceRequest,
     OwnerDto,
     FormElementV2025,
-    FormElementValidationsSetV2025,
     FormDefinitionInputV2025,
 } from 'sailpoint-api-client'
 import { RawAxiosRequestConfig } from 'axios'
@@ -40,7 +39,16 @@ export class FormService {
     private readonly fusionFormNamePattern: string
     private readonly fusionFormExpirationDays: number
     private readonly fusionFormAttributes?: string[]
-    private readonly newIdentityDecision: string
+
+    // Friendly algorithm names (aligned with connector-spec.json)
+    private static readonly ALGORITHM_LABELS: Record<string, string> = {
+        'name-matcher': 'Enhanced Name Matcher',
+        'jaro-winkler': 'Jaro-Winkler',
+        dice: 'Dice',
+        'double-metaphone': 'Double Metaphone',
+        custom: 'Custom Algorithm (from SaaS customizer)',
+        average: 'Average Score',
+    }
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -57,7 +65,6 @@ export class FormService {
         this.fusionFormNamePattern = config.fusionFormNamePattern
         this.fusionFormExpirationDays = config.fusionFormExpirationDays
         this.fusionFormAttributes = config.fusionFormAttributes
-        this.newIdentityDecision = config.newIdentityDecision
     }
 
     // ------------------------------------------------------------------------
@@ -74,7 +81,18 @@ export class FormService {
         this._fusionIdentityDecisions = []
         this._fusionAssignmentDecisionMap = new Map()
 
-        await this.fetchFormDataByNamePattern(this.fusionFormNamePattern, (x) => this.processFusionFormInstances(x))
+        const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
+        this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
+
+        await Promise.all(
+            forms.map(async (form) => {
+                this.log.debug(`Fetching instances for form definition: ${form.id} (${form.name || 'unknown'})`)
+                const instances = await this.fetchFormInstancesByDefinitionId(form.id)
+                this.log.debug(`Fetched ${instances.length} instance(s) for form definition: ${form.id}`)
+
+                this.processFusionFormInstances(instances)
+            })
+        )
 
         const fusionDecisionsCount = this._fusionIdentityDecisions?.length ?? 0
         this.log.debug(`Form data fetch completed - ${fusionDecisionsCount} fusion decision(s)`)
@@ -170,9 +188,26 @@ export class FormService {
                 reviewer.addFusionReview(formInstance.standAloneFormUrl!)
                 this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
 
-                if (!hasPreviousInstance && this.messaging) {
+                if (this.messaging) {
+                    if (hasPreviousInstance) {
+                        this.log.debug(
+                            `Previous instance existed for reviewer ${reviewerId}; still sending review email for new instance ${formInstance.id}`
+                        )
+                    }
                     try {
-                        await this.messaging.sendFusionEmail(formInstance)
+                        await this.messaging.sendFusionEmail(formInstance, {
+                            accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
+                            accountSource: fusionAccount.sourceName,
+                            accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
+                            accountEmail: fusionAccount.email,
+                            accountAttributes: fusionAccount.attributes as any,
+                            candidates: candidates.map((c) => ({
+                                id: c.id,
+                                name: c.name,
+                                attributes: c.attributes,
+                                scores: c.scores,
+                            })),
+                        })
                         this.log.debug(`Email notification sent for form ${formInstance.id}`)
                     } catch (error) {
                         this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
@@ -279,10 +314,15 @@ export class FormService {
         const candidates = fusionAccount.fusionMatches.map((match) => {
             assert(match.fusionIdentity, 'Fusion identity is required in match')
             assert(match.fusionIdentity.identityId, 'Fusion identity ID is required')
+            const attrs: Record<string, any> = match.fusionIdentity.attributes || {}
             return {
                 id: match.fusionIdentity.identityId,
-                name: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
-                attributes: match.fusionIdentity.attributes || {},
+                // IMPORTANT: keep this aligned with the SELECT element's label path:
+                // buildFormFields() uses SEARCH_V2 with label: 'attributes.displayName'
+                name: String(
+                    attrs.displayName || match.fusionIdentity.displayName || match.fusionIdentity.name || 'Unknown'
+                ),
+                attributes: attrs,
                 scores: match.scores || [],
             }
         })
@@ -313,25 +353,27 @@ export class FormService {
     ): { [key: string]: any } {
         const formInput: { [key: string]: any } = {}
 
-        // Account info (nested structure for processing code)
-        formInput.account = {
-            value: fusionAccount.nativeIdentity,
-            displayName: fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity,
-            attributes: fusionAccount.attributes,
-            sourceName: fusionAccount.sourceName,
-        }
+        const accountIdentifier =
+            String(fusionAccount.managedAccountId || '').trim() ||
+            String(fusionAccount.nativeIdentityOrUndefined || '').trim() ||
+            String((fusionAccount.attributes as any)?.id || '').trim() ||
+            String((fusionAccount.attributes as any)?.uuid || '').trim() ||
+            String(fusionAccount.identityId || '').trim() ||
+            'unknown'
 
-        // Candidates (nested structure for processing code)
-        formInput.candidates = candidates.map((candidate) => ({
-            value: candidate.id,
-            displayName: candidate.name,
-            attributes: candidate.attributes,
-            scores: candidate.scores,
-        }))
-
-        // Flat keys for form elements (matches formInput schema)
-        formInput.name = fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity
+        // NOTE: formInput must match the form definition input types.
+        // Keep values primitive (STRING/BOOLEAN/NUMBER) to avoid Custom Forms payload issues.
+        formInput.name =
+            fusionAccount.name ||
+            fusionAccount.displayName ||
+            fusionAccount.nativeIdentityOrUndefined ||
+            accountIdentifier
+        formInput.account = accountIdentifier
         formInput.source = fusionAccount.sourceName
+        // Defaults for interactive decision fields
+        // Keep as string to align with definition input type constraints.
+        formInput.newIdentity = 'false'
+        formInput.identities = ''
 
         // New identity attributes (flat keys for form elements)
         if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
@@ -409,18 +451,29 @@ export class FormService {
 
         let deleteForm = true
         let processedCount = 0
+        let formDefinitionId: string | undefined = undefined
+        let accountId: string | undefined = undefined
 
         instances: for (const instance of formInstances) {
             assert(instance, 'Form instance is required')
             assert(instance.state, 'Form instance state is required')
 
+            if (!formDefinitionId) {
+                formDefinitionId = instance.formDefinitionId
+            }
+            if (!accountId) {
+                const formInputs = instance.formInput as FormDefinitionInputV2025 | undefined
+                const accountInput = Object.values(formInputs ?? {}).find(
+                    (x) => x && x.id === 'account' && (x.value?.length ?? 0) > 0
+                )
+                accountId = accountInput?.value
+            }
+
             switch (instance.state) {
                 case 'COMPLETED':
                     this.log.debug(`Processing completed form instance: ${instance.id}`)
                     this.addFusionDecision(instance)
-                    if (instance.formDefinitionId) {
-                        this.addFormToDelete(instance.formDefinitionId)
-                    }
+                    deleteForm = true
                     processedCount++
                     break instances
                 case 'CANCELLED':
@@ -434,8 +487,12 @@ export class FormService {
             }
         }
 
-        if (deleteForm && formInstances.length > 0 && formInstances[0].formDefinitionId) {
-            this.addFormToDelete(formInstances[0].formDefinitionId)
+        if (deleteForm && formDefinitionId) {
+            this.addFormToDelete(formDefinitionId)
+        } else if (accountId) {
+            const managedAccountsMap = this.sources.managedAccountsById
+            assert(managedAccountsMap, 'Managed accounts have not been loaded')
+            managedAccountsMap.delete(accountId)
         }
 
         this.log.debug(`Processed ${processedCount} fusion form instance(s)`)
@@ -456,10 +513,30 @@ export class FormService {
             return
         }
 
-        const account = formInput.account as any
-        assert(account, 'Account data is required in form input')
+        // Reconstruct account object if it's missing or flattened
+        let account: any = formInput.account
 
-        const decisionValue: string = formData.identities || ''
+        // If account is an object with value property, use it as is
+        if (!account || typeof account !== 'object' || account.value === undefined) {
+            // Account is missing, a string, or invalid - reconstruct from available data
+            // Try to get account value from formInput.account (string) or formInput.name as fallback
+            const accountValue =
+                (typeof formInput.account === 'string' ? formInput.account : null) || formInput.name || ''
+            if (!accountValue) {
+                this.log.warn(`Missing account data in form instance: ${formInstance.id}`)
+                return
+            }
+            account = {
+                value: accountValue,
+                displayName: formInput.name || accountValue,
+                sourceName: formInput.source || '',
+                attributes: this.reconstructAccountAttributes(formInput),
+            }
+        }
+
+        const isNewIdentity = formData.newIdentity
+        const existingIdentity = isNewIdentity ? undefined : formData.identities
+
         const reviewerIdentityId = recipients[0].id
 
         if (!reviewerIdentityId) {
@@ -467,9 +544,9 @@ export class FormService {
             return
         }
 
-        const accountNativeIdentity: string = account?.value
+        const accountId: string = account?.value
 
-        if (!accountNativeIdentity) {
+        if (!accountId) {
             this.log.warn(`Missing account native identity in form instance: ${formInstance.id}`)
             return
         }
@@ -480,28 +557,47 @@ export class FormService {
             return
         }
 
-        assert(this.newIdentityDecision, 'New identity decision text is required')
-        const isNewIdentity = decisionValue === this.newIdentityDecision || decisionValue === ''
-
         const fusionDecision: FusionDecision = {
             submitter: reviewer,
             account: {
-                id: accountNativeIdentity,
-                name: account?.displayName || accountNativeIdentity,
+                id: accountId,
+                name: account?.displayName || accountId,
                 sourceName: account?.sourceName || '',
                 attributes: account?.attributes || {},
             },
             newIdentity: isNewIdentity,
-            identityId: isNewIdentity ? undefined : decisionValue,
+            identityId: existingIdentity,
             comments: formData.comments || '',
         }
 
         this._fusionIdentityDecisions.push(fusionDecision)
 
         this.log.debug(
-            `Processed fusion decision for account ${accountNativeIdentity}, reviewer ${reviewerIdentityId}, ` +
-                `decision: ${isNewIdentity ? 'new identity' : `link to ${decisionValue}`}`
+            `Processed fusion decision for account ${accountId}, reviewer ${reviewerIdentityId}, ` +
+                `decision: ${isNewIdentity ? 'new identity' : `link to ${existingIdentity}`}`
         )
+    }
+
+    /**
+     * Reconstruct account attributes from flat form input keys
+     */
+    private reconstructAccountAttributes(formInput: { [key: string]: any }): Record<string, any> {
+        const attributes: Record<string, any> = {}
+
+        if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+            this.fusionFormAttributes.forEach((attrName) => {
+                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                const attrValue = formInput[`newidentity.${attrKey}`]
+                if (attrValue !== undefined && attrValue !== null && attrValue !== '') {
+                    // Try to preserve original type if possible, otherwise use string
+                    attributes[attrName] = attrValue
+                    // Also set lowercase key for compatibility
+                    attributes[attrKey] = attrValue
+                }
+            })
+        }
+
+        return attributes
     }
 
     /**
@@ -549,6 +645,7 @@ export class FormService {
     ): Promise<FormDefinitionResponseV2025> {
         const formFields = this.buildFormFields(fusionAccount, candidates)
         const formInputs = this.buildFormInputs(fusionAccount, candidates)
+        const formConditions = this.buildFormConditions(fusionAccount, candidates)
         const owner = this.getFormOwner()
 
         const formDefinition: CustomFormsV2025ApiCreateFormDefinitionRequest = {
@@ -559,6 +656,7 @@ export class FormService {
                 owner,
                 formElements: formFields,
                 formInput: formInputs,
+                formConditions: formConditions as any,
             },
         }
 
@@ -579,17 +677,20 @@ export class FormService {
     ): FormElementV2025[] {
         const formFields: FormElementV2025[] = []
 
-        // Top section: Potential Identity Merge info
+        // Top section: Fusion review required header
         const topSectionElements: FormElementV2025[] = []
         if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
             this.fusionFormAttributes.forEach((attrName) => {
                 const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                const attrValue = fusionAccount.attributes?.[attrName] ?? fusionAccount.attributes?.[attrKey] ?? ''
                 topSectionElements.push({
-                    id: attrKey,
-                    key: attrKey,
+                    id: `newidentity.${attrKey}`,
+                    key: `newidentity.${attrKey}`,
                     elementType: 'TEXT',
                     config: {
                         label: this.capitalizeFirst(attrName),
+                        // Prefill visible values at definition-time so instances don't render blank.
+                        default: String(attrValue),
                     },
                     validations: [],
                 })
@@ -604,9 +705,9 @@ export class FormService {
                 config: {
                     alignment: 'CENTER',
                     description:
-                        'Potentially duplicated identity was found. Please review the list of possible matches from existing identities and select the right one.',
+                        'A potential duplicate identity has been detected. Please review the candidate identities below and either select an existing identity to link this account to, or choose to create a new identity.',
                     formElements: topSectionElements,
-                    label: `Potential Identity Merge from ${fusionAccount.sourceName}`,
+                    label: `Fusion review required for ${fusionAccount.sourceName}`,
                     labelStyle: 'h2',
                     showLabel: true,
                 },
@@ -614,16 +715,11 @@ export class FormService {
             })
         }
 
-        // Identities section: SELECT dropdown
-        const selectOptions: Array<{ label: string; value: string }> = candidates.map((candidate) => ({
-            label: candidate.name,
-            value: candidate.name,
-        }))
-        selectOptions.push({
-            label: this.newIdentityDecision,
-            value: this.newIdentityDecision,
-        })
+        // Build search query for identities: id:xxx OR id:yyy OR id:zzz
+        const identityIds = candidates.map((candidate) => candidate.id)
+        const identitySearchQuery = identityIds.map((id) => `id:${id}`).join(' OR ')
 
+        // Fusion decision section: New identity toggle and identities select in a COLUMN_SET
         formFields.push({
             id: 'identitiesSection',
             key: 'identitiesSection',
@@ -632,29 +728,64 @@ export class FormService {
                 alignment: 'CENTER',
                 formElements: [
                     {
-                        id: 'identities',
-                        key: 'identities',
-                        elementType: 'SELECT',
+                        id: 'decisionsColumnSet',
+                        key: 'decisionsColumnSet',
+                        elementType: 'COLUMN_SET',
                         config: {
-                            dataSource: {
-                                config: {
-                                    options: selectOptions,
-                                },
-                                dataSourceType: 'STATIC',
-                            },
-                            forceSelect: true,
-                            label: 'Identities',
-                            maximum: 1,
-                            required: true,
+                            alignment: 'CENTER',
+                            columnCount: 2,
+                            columns: [
+                                [
+                                    {
+                                        id: 'newIdentity',
+                                        key: 'newIdentity',
+                                        elementType: 'TOGGLE',
+                                        config: {
+                                            label: 'New identity',
+                                            default: false,
+                                            trueLabel: 'True',
+                                            falseLabel: 'False',
+                                            helpText: 'Select this if the account is a new identity',
+                                        },
+                                        validations: [],
+                                    },
+                                ],
+                                [
+                                    {
+                                        id: 'identities',
+                                        key: 'identities',
+                                        elementType: 'SELECT',
+                                        config: {
+                                            dataSource: {
+                                                config: {
+                                                    indices: ['identities'],
+                                                    query: identitySearchQuery,
+                                                    label: 'attributes.displayName',
+                                                    sublabel: 'attributes.email',
+                                                    value: 'id',
+                                                },
+                                                dataSourceType: 'SEARCH_V2',
+                                            },
+                                            forceSelect: true,
+                                            label: 'Existing identity',
+                                            maximum: 1,
+                                            required: false,
+                                            helpText: 'Select the identity the account is part of',
+                                            placeholder: null,
+                                        },
+                                        validations: [],
+                                    },
+                                ],
+                            ],
+                            description: '',
+                            label: 'Decisions',
+                            labelStyle: 'h5',
+                            showLabel: false,
                         },
-                        validations: [
-                            {
-                                validationType: 'REQUIRED',
-                            },
-                        ] as FormElementValidationsSetV2025[],
+                        validations: [],
                     },
                 ],
-                label: 'Existing identities',
+                label: 'Fusion decision',
                 labelStyle: 'h3',
                 showLabel: true,
             },
@@ -669,12 +800,14 @@ export class FormService {
             if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
                 this.fusionFormAttributes.forEach((attrName) => {
                     const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                    const attrValue = candidate.attributes?.[attrName] ?? candidate.attributes?.[attrKey] ?? ''
                     candidateElements.push({
                         id: `${candidateId}.${attrKey}`,
                         key: `${candidateId}.${attrKey}`,
                         elementType: 'TEXT',
                         config: {
                             label: this.capitalizeFirst(attrName),
+                            default: String(attrValue),
                         },
                         validations: [],
                     })
@@ -692,6 +825,7 @@ export class FormService {
                             elementType: 'TEXT',
                             config: {
                                 label: `${this.capitalizeFirst(score.type)} score`,
+                                default: String(score.value),
                             },
                             validations: [],
                         })
@@ -702,6 +836,7 @@ export class FormService {
                                 elementType: 'TEXT',
                                 config: {
                                     label: `${this.capitalizeFirst(score.type)} threshold`,
+                                    default: String(score.threshold),
                                 },
                                 validations: [],
                             })
@@ -740,6 +875,62 @@ export class FormService {
                 }
             }
 
+            // Add fusion score summary at the end (textarea, prefilled).
+            // Using `default` ensures it renders; `description` alone may not show in the UI.
+            if (candidate.scores && candidate.scores.length > 0) {
+                // ScoreReport shape: { attribute, algorithm, fusionScore (threshold), mandatory, score, isMatch, comment? }
+                // Be defensive and also accept older shapes (value/threshold/type) if present.
+                const scoreValues = candidate.scores
+                    .map((s: any) => Number(s?.score ?? s?.value))
+                    .filter((n: any) => Number.isFinite(n)) as number[]
+                const averageScore =
+                    scoreValues.length > 0
+                        ? (scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length).toFixed(1)
+                        : 'N/A'
+
+                const factorLines = candidate.scores
+                    .filter((s: any) => s && (s.score !== undefined || s.value !== undefined))
+                    .map((s: any) => {
+                        const name = String(s.attribute ?? s.type ?? 'score')
+                        const algorithmKey = String(s.algorithm ?? 'unknown')
+                        const algorithm = FormService.ALGORITHM_LABELS[algorithmKey] ?? algorithmKey
+                        const value = s.score !== undefined ? Number(s.score) : Number(s.value)
+                        const thresholdRaw = s.fusionScore ?? s.threshold
+                        const thresholdPart =
+                            thresholdRaw !== undefined && thresholdRaw !== null
+                                ? ` (threshold: ${String(thresholdRaw)}%)`
+                                : ''
+                        const matchPart =
+                            s.isMatch !== undefined && s.isMatch !== null ? `, match: ${s.isMatch ? 'yes' : 'no'}` : ''
+                        const commentPart = s.comment ? ` - ${String(s.comment)}` : ''
+                        return `- ${name} [${algorithm}]: ${Number.isFinite(value) ? `${value}%` : String(s.score ?? s.value)}${thresholdPart}${matchPart}${commentPart}`
+                    })
+
+                const summary = [
+                    `Average fusion score: ${averageScore}% (based on ${scoreValues.length} scoring factor(s))`,
+                    factorLines.length > 0 ? '' : undefined,
+                    factorLines.length > 0 ? 'Factors:' : undefined,
+                    ...factorLines,
+                ]
+                    .filter((x): x is string => typeof x === 'string')
+                    .join('\n')
+
+                candidateElements.push({
+                    id: `${candidateId}.scoreSummary`,
+                    key: `${candidateId}.scoreSummary`,
+                    // SailPoint forms support TEXTAREA element type; treated as free-form text input.
+                    // We prefill it so it acts like a read-only summary in practice.
+                    elementType: 'TEXTAREA' as any,
+                    config: {
+                        label: 'Fusion Score Summary',
+                        default: summary,
+                        rows: 10,
+                        resize: true,
+                    },
+                    validations: [],
+                })
+            }
+
             if (candidateElements.length > 0) {
                 formFields.push({
                     id: `${candidateId}.selectionsection`,
@@ -758,6 +949,170 @@ export class FormService {
         })
 
         return formFields
+    }
+
+    /**
+     * Build form conditions to hide candidate sections when appropriate
+     * and disable all TEXT fields at all times
+     */
+    private buildFormConditions(
+        fusionAccount: FusionAccount,
+        candidates: Array<{
+            id: string
+            name: string
+            attributes: Record<string, any>
+            scores: any[]
+        }>
+    ): any[] {
+        const formConditions: any[] = []
+
+        // Disable all TEXT fields in the top section (new identity attributes)
+        // Use a condition that's always true by checking newIdentity against itself
+        if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+            this.fusionFormAttributes.forEach((attrName) => {
+                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                formConditions.push({
+                    ruleOperator: 'AND',
+                    rules: [
+                        {
+                            sourceType: 'ELEMENT',
+                            source: 'newIdentity',
+                            operator: 'NE',
+                            valueType: 'STRING',
+                            value: '__NEVER_MATCH__',
+                        },
+                    ],
+                    effects: [
+                        {
+                            effectType: 'DISABLE',
+                            config: {
+                                element: `newidentity.${attrKey}`,
+                            },
+                        },
+                    ],
+                })
+            })
+        }
+
+        // Disable all TEXT fields for candidate attributes and scores
+        candidates.forEach((candidate) => {
+            const candidateId = candidate.id
+
+            // Disable candidate attribute fields
+            // Use a condition that's always true by checking newIdentity against an impossible value
+            if (this.fusionFormAttributes && this.fusionFormAttributes.length > 0) {
+                this.fusionFormAttributes.forEach((attrName) => {
+                    const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                    formConditions.push({
+                        ruleOperator: 'AND',
+                        rules: [
+                            {
+                                sourceType: 'ELEMENT',
+                                source: 'newIdentity',
+                                operator: 'NE',
+                                valueType: 'STRING',
+                                value: '__NEVER_MATCH__',
+                            },
+                        ],
+                        effects: [
+                            {
+                                effectType: 'DISABLE',
+                                config: {
+                                    element: `${candidateId}.${attrKey}`,
+                                },
+                            },
+                        ],
+                    })
+                })
+            }
+
+            // Disable score fields
+            // Use a condition that's always true by checking newIdentity against an impossible value
+            if (candidate.scores && candidate.scores.length > 0) {
+                candidate.scores.forEach((score: any) => {
+                    if (score.type && score.value !== undefined) {
+                        formConditions.push({
+                            ruleOperator: 'AND',
+                            rules: [
+                                {
+                                    sourceType: 'ELEMENT',
+                                    source: 'newIdentity',
+                                    operator: 'NE',
+                                    valueType: 'STRING',
+                                    value: '__NEVER_MATCH__',
+                                },
+                            ],
+                            effects: [
+                                {
+                                    effectType: 'DISABLE',
+                                    config: {
+                                        element: `${candidateId}.${score.type}.score`,
+                                    },
+                                },
+                            ],
+                        })
+
+                        if (score.threshold !== undefined) {
+                            formConditions.push({
+                                ruleOperator: 'AND',
+                                rules: [
+                                    {
+                                        sourceType: 'ELEMENT',
+                                        source: 'newIdentity',
+                                        operator: 'NE',
+                                        valueType: 'STRING',
+                                        value: '__NEVER_MATCH__',
+                                    },
+                                ],
+                                effects: [
+                                    {
+                                        effectType: 'DISABLE',
+                                        config: {
+                                            element: `${candidateId}.${score.type}.threshold`,
+                                        },
+                                    },
+                                ],
+                            })
+                        }
+                    }
+                })
+            }
+        })
+
+        // For each candidate, create a condition that hides its section when:
+        // - newIdentity is true, OR
+        // - identities is not equal to the candidate's displayName (form condition evaluation uses displayName instead of ID)
+        candidates.forEach((candidate) => {
+            formConditions.push({
+                ruleOperator: 'OR',
+                rules: [
+                    {
+                        sourceType: 'ELEMENT',
+                        source: 'newIdentity',
+                        operator: 'EQ',
+                        valueType: 'BOOLEAN',
+                        value: 'true',
+                    },
+                    {
+                        sourceType: 'ELEMENT',
+                        source: 'identities',
+                        operator: 'NE',
+                        valueType: 'STRING',
+                        value: candidate.name,
+                    },
+                ],
+                effects: [
+                    {
+                        effectType: 'HIDE',
+                        config: {
+                            element: `${candidate.id}.selectionsection`,
+                        },
+                    },
+                ],
+            })
+        })
+
+        return formConditions
     }
 
     /**
@@ -781,24 +1136,51 @@ export class FormService {
     ): FormDefinitionInputV2025[] {
         const formInputs: FormDefinitionInputV2025[] = []
 
+        const accountIdentifier =
+            String(fusionAccount.managedAccountId || '').trim() ||
+            String(fusionAccount.nativeIdentityOrUndefined || '').trim() ||
+            String((fusionAccount.attributes as any)?.id || '').trim() ||
+            String((fusionAccount.attributes as any)?.uuid || '').trim() ||
+            String(fusionAccount.identityId || '').trim() ||
+            'unknown'
+
         // Account info
         formInputs.push({
             id: 'name',
             type: 'STRING',
             label: 'name',
-            description: fusionAccount.name || fusionAccount.displayName || fusionAccount.nativeIdentity,
+            description:
+                fusionAccount.name ||
+                fusionAccount.displayName ||
+                fusionAccount.nativeIdentityOrUndefined ||
+                accountIdentifier,
         })
         formInputs.push({
             id: 'account',
             type: 'STRING',
             label: 'account',
-            description: fusionAccount.nativeIdentity,
+            description: accountIdentifier,
         })
         formInputs.push({
             id: 'source',
             type: 'STRING',
             label: 'source',
             description: fusionAccount.sourceName,
+        })
+
+        // Decision inputs (bound to interactive elements)
+        // NOTE: SDK only supports STRING / ARRAY for definition inputs. Toggle still binds to this key.
+        formInputs.push({
+            id: 'newIdentity',
+            type: 'STRING',
+            label: 'newIdentity',
+            description: 'false',
+        })
+        formInputs.push({
+            id: 'identities',
+            type: 'STRING',
+            label: 'identities',
+            description: '',
         })
 
         // New identity attributes
@@ -872,7 +1254,10 @@ export class FormService {
      * Add form to deletion queue
      */
     private addFormToDelete(formDefinitionId: string): void {
-        this._formsToDelete.push(formDefinitionId)
+        // Avoid double-queueing the same definition id (processFusionFormInstances can hit multiple paths)
+        if (!this._formsToDelete.includes(formDefinitionId)) {
+            this._formsToDelete.push(formDefinitionId)
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -972,6 +1357,7 @@ export class FormService {
     /**
      * Create a form instance
      */
+
     private async createFormInstance(
         formDefinitionId: string,
         formInput: { [key: string]: any },

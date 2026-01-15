@@ -41,7 +41,6 @@ export interface AttributeDefinition {
     normalize: boolean
     spaces: boolean
     refresh: boolean
-    overwrite: boolean
     values?: Set<string>
 }
 
@@ -243,17 +242,14 @@ export interface InternalConfig {
     readonly processingWaitConstant: number
     readonly retriesConstant: number
     readonly workflowName: string
-    readonly transformName: string
     readonly padding: string
     readonly msDay: number
     readonly identityNotFoundWait: number
     readonly identityNotFoundRetries: number
     readonly separator: string
     readonly fusionFormNamePattern: string
-    readonly reservedAttributes: readonly string[]
     readonly nonAggregableTypes: readonly string[]
     readonly pageSize: number
-    readonly newIdentityDecision: string
     readonly fusionAccountRefreshThresholdInSeconds: number
     readonly concurrency: {
         readonly uncorrelatedAccounts: number

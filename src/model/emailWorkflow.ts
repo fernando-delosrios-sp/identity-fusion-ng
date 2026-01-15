@@ -1,6 +1,5 @@
 import {
     CreateWorkflowRequestV2025,
-    WorkflowsV2025ApiCreateWorkflowRequest,
     WorkflowBodyOwnerV2025,
     WorkflowDefinitionV2025,
     WorkflowTriggerV2025,

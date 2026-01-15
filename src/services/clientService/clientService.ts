@@ -35,6 +35,7 @@ export class ClientService {
     public readonly config: Configuration
     protected readonly enableQueue: boolean
     private readonly pageSize: number
+    private readonly requestTimeoutMs?: number
 
     // Lazy-loaded API instances
     private _accountsApi?: AccountsApi
@@ -63,6 +64,14 @@ export class ClientService {
         const retriesConfig = createRetriesConfig(maxRetries)
         this.config = new Configuration({ ...fusionConfig, tokenUrl })
         this.config.retriesConfig = retriesConfig
+
+        // Apply a hard timeout at the client layer to avoid indefinite hangs.
+        // Use provisioningTimeout (seconds) as the global per-request timeout.
+        // If not set or <= 0, no timeout wrapper is applied.
+        this.requestTimeoutMs =
+            fusionConfig.provisioningTimeout && fusionConfig.provisioningTimeout > 0
+                ? fusionConfig.provisioningTimeout * 1000
+                : undefined
 
         // Store pageSize for pagination
         this.pageSize = fusionConfig.pageSize
@@ -177,11 +186,26 @@ export class ClientService {
         apiFunction: () => Promise<TResponse>,
         priority: QueuePriority = QueuePriority.NORMAL
     ): Promise<TResponse> {
-        if (this.queue) {
-            return await this.queue.enqueue(() => apiFunction(), { priority })
+        const fn = () => {
+            if (!this.requestTimeoutMs) {
+                return apiFunction()
+            }
+            return Promise.race<TResponse>([
+                apiFunction(),
+                new Promise<TResponse>((_, reject) =>
+                    setTimeout(
+                        () => reject(new Error(`API request timed out after ${this.requestTimeoutMs}ms`)),
+                        this.requestTimeoutMs
+                    )
+                ),
+            ])
         }
 
-        return await apiFunction()
+        if (this.queue) {
+            return await this.queue.enqueue(() => fn(), { priority })
+        }
+
+        return await fn()
     }
 
     /**

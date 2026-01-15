@@ -14,8 +14,8 @@ export const fusionAction = async (fusionAccount: FusionAccount, op: AttributeCh
 
     // TODO: Implement fusion action logic
     if (op === AttributeChangeOp.Add) {
-        fusionAccount.actions.add('fusion')
+        // fusionAccount.actions.add('fusion')
     } else if (op === AttributeChangeOp.Remove) {
-        fusionAccount.actions.delete('fusion')
+        // fusionAccount.actions.delete('fusion')
     }
 }

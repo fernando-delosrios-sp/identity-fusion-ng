@@ -1,6 +1,5 @@
 import { Response, StdAccountEnableInput, StdAccountEnableOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { fetchFusionAccount } from './helpers/fetchFusionAccount'
 import { assert } from '../utils/assert'
 
 export const accountEnable = async (
@@ -9,7 +8,7 @@ export const accountEnable = async (
     res: Response<StdAccountEnableOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion, sources, schemas } = serviceRegistry
+    const { log, fusion, sources, schemas, attributes } = serviceRegistry
 
     try {
         log.info(`Enabling account ${input.identity}...`)
@@ -18,8 +17,12 @@ export const accountEnable = async (
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
 
-        const fusionAccount = await fetchFusionAccount(input.identity, serviceRegistry)
+        await sources.fetchFusionAccounts()
+        await fusion.processFusionAccounts()
+
+        const fusionAccount = fusion.getFusionAccountByNativeIdentity(input.identity)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
+        await attributes.refreshAttributes(fusionAccount, true)
 
         log.debug(`Enabling fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
         fusionAccount.enable()
