@@ -93,6 +93,7 @@ export class FusionAccount {
             config.fusionAccountRefreshThresholdInSeconds
         )
         // The ISC Account "id" (stable identifier for the account object)
+        fusionAccount._nativeIdentity = account.identity as string
         fusionAccount._name = account.name ?? undefined
         fusionAccount._displayName = fusionAccount._name
         fusionAccount._modified = getDateFromISOString(account.modified)

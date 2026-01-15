@@ -226,9 +226,7 @@ export class FusionService {
             fusionAccount.setKey(key)
 
             // Set display attribute using the attributes getter
-            const currentAttributes = fusionAccount.attributes
-            currentAttributes[fusionDisplayAttribute] = identity.name
-            fusionAccount.setMappedAttributes(currentAttributes)
+            fusionAccount.attributes[fusionDisplayAttribute] = identity.name
 
             // Use setter method to add to appropriate map
             this.setFusionAccount(fusionAccount)

@@ -1077,6 +1077,29 @@ export class FormService {
                         }
                     }
                 })
+
+                // Disable scoreSummary TEXTAREA field
+                // Use a condition that's always true by checking newIdentity against an impossible value
+                formConditions.push({
+                    ruleOperator: 'AND',
+                    rules: [
+                        {
+                            sourceType: 'ELEMENT',
+                            source: 'newIdentity',
+                            operator: 'NE',
+                            valueType: 'STRING',
+                            value: '__NEVER_MATCH__',
+                        },
+                    ],
+                    effects: [
+                        {
+                            effectType: 'DISABLE',
+                            config: {
+                                element: `${candidateId}.scoreSummary`,
+                            },
+                        },
+                    ],
+                })
             }
         })
 
@@ -1115,7 +1138,6 @@ export class FormService {
 
         return formConditions
     }
-
 
     /**
      * Build form inputs for fusion form definition
