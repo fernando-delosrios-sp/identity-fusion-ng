@@ -8,6 +8,9 @@ import { SourceInfo, SourceService } from '../sourceService'
 import { FusionAccount } from '../../model/account'
 import { attrConcat, AttributeService } from '../attributeService'
 import { assert } from '../../utils/assert'
+import { pickAttributes } from '../../utils/attributes'
+import { createUrlContext, UrlContext } from '../../utils/url'
+import { mapValuesToArray } from '../../utils/collections'
 import { FusionDecision } from '../../model/form'
 import { ScoringService } from '../scoringService'
 import { SchemaService } from '../schemaService'
@@ -31,6 +34,8 @@ export class FusionService {
     private readonly sourcesByName: Map<string, SourceInfo> = new Map()
     private readonly reset: boolean
     private readonly correlateOnAggregation: boolean
+    private readonly reportAttributes: string[]
+    private readonly urlContext: UrlContext
     public readonly fusionOwnerIsGlobalReviewer: boolean
     public readonly fusionReportOnAggregation: boolean
 
@@ -52,6 +57,8 @@ export class FusionService {
         this.correlateOnAggregation = config.correlateOnAggregation
         this.fusionOwnerIsGlobalReviewer = config.fusionOwnerIsGlobalReviewer ?? false
         this.fusionReportOnAggregation = config.fusionReportOnAggregation ?? false
+        this.reportAttributes = config.fusionFormAttributes ?? []
+        this.urlContext = createUrlContext(config.baseurl)
     }
 
     // ------------------------------------------------------------------------
@@ -396,14 +403,14 @@ export class FusionService {
     }
 
     public get fusionIdentities(): FusionAccount[] {
-        return Array.from(this._fusionIdentityMap.values())
+        return mapValuesToArray(this._fusionIdentityMap)
     }
 
     /**
      * Get all fusion accounts keyed by native identity
      */
     public get fusionAccounts(): FusionAccount[] {
-        return Array.from(this._fusionAccountMap.values())
+        return mapValuesToArray(this._fusionAccountMap)
     }
 
     /**
@@ -448,35 +455,6 @@ export class FusionService {
      */
     public generateReport(): FusionReport {
         const accounts: FusionReportAccount[] = []
-        const reportAttributes = this.config.fusionFormAttributes ?? []
-        const baseUrl = this.config.baseurl
-        const uiOrigin = (() => {
-            try {
-                const u = new URL(baseUrl)
-                // remove the api subdomain segment used by the API host
-                const host = u.host.replace('.api.', '.').replace(/^api\./, '')
-                return `${u.protocol}//${host}`
-            } catch {
-                return undefined
-            }
-        })()
-
-        const pickAttributes = (attrs: Record<string, any> | undefined): Record<string, any> | undefined => {
-            if (!attrs) return undefined
-            if (!reportAttributes || reportAttributes.length === 0) return undefined
-
-            const picked: Record<string, any> = {}
-            for (const name of reportAttributes) {
-                const direct = attrs[name]
-                const lowerFirst = name ? name.charAt(0).toLowerCase() + name.slice(1) : name
-                const fallback = lowerFirst ? attrs[lowerFirst] : undefined
-                const value = direct ?? fallback
-                if (value !== undefined && value !== null && value !== '') {
-                    picked[name] = value
-                }
-            }
-            return Object.keys(picked).length > 0 ? picked : undefined
-        }
 
         // Report on the managed accounts that were flagged as potential duplicates (forms created)
         for (const fusionAccount of this._potentialDuplicateMap.values()) {
@@ -485,10 +463,7 @@ export class FusionService {
                 const matches = fusionMatches.map((match) => ({
                     identityName: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
                     identityId: match.fusionIdentity.identityId,
-                    identityUrl:
-                        uiOrigin && match.fusionIdentity.identityId
-                            ? `${uiOrigin}/ui/a/admin/identities/${encodeURIComponent(match.fusionIdentity.identityId)}/details/attributes`
-                            : undefined,
+                    identityUrl: this.urlContext.identity(match.fusionIdentity.identityId),
                     isMatch: true,
                     scores: match.scores.map((score) => ({
                         attribute: score.attribute,
@@ -505,7 +480,7 @@ export class FusionService {
                     accountSource: fusionAccount.sourceName,
                     accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
                     accountEmail: fusionAccount.email,
-                    accountAttributes: pickAttributes(fusionAccount.attributes as any),
+                    accountAttributes: pickAttributes(fusionAccount.attributes as any, this.reportAttributes),
                     matches,
                 })
             }

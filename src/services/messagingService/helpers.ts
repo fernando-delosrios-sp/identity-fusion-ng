@@ -201,3 +201,31 @@ export const renderFusionReport = (
     }
     return template(data)
 }
+
+/**
+ * Normalize identity "email" attribute(s) into array of strings.
+ * ISC tenants sometimes store email as a string, array, or nested object.
+ */
+export const normalizeEmailValue = (value: any): string[] => {
+    if (!value) return []
+
+    if (typeof value === 'string') {
+        const v = value.trim()
+        return v ? [v] : []
+    }
+
+    if (Array.isArray(value)) {
+        const out: string[] = []
+        for (const item of value) {
+            out.push(...normalizeEmailValue(item))
+        }
+        return out
+    }
+
+    if (typeof value === 'object') {
+        const maybe = (value as any).value ?? (value as any).email ?? (value as any).mail
+        return normalizeEmailValue(maybe)
+    }
+
+    return []
+}

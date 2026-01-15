@@ -11,6 +11,9 @@ import { ClientService } from '../clientService'
 import { LogService } from '../logService'
 import { EmailWorkflow } from '../../model/emailWorkflow'
 import { assert, softAssert } from '../../utils/assert'
+import { pickAttributes } from '../../utils/attributes'
+import { createUrlContext, UrlContext } from '../../utils/url'
+import { normalizeEmailValue, sanitizeRecipients } from '../../utils/email'
 import { IdentityService } from '../identityService'
 import { SourceService } from '../sourceService'
 import type { FusionAccount } from '../../model/account'
@@ -37,7 +40,7 @@ export class MessagingService {
     private _templates: Map<string, HandlebarsTemplateDelegate> = new Map()
     private readonly workflowName: string
     private readonly cloudDisplayName: string
-    private readonly uiOrigin?: string
+    private readonly urlContext: UrlContext
     private readonly reportAttributes: string[]
 
     // ------------------------------------------------------------------------
@@ -54,15 +57,7 @@ export class MessagingService {
         this.workflowName = config.workflowName
         this.cloudDisplayName = config.cloudDisplayName
         this.reportAttributes = config.fusionFormAttributes ?? []
-        this.uiOrigin = (() => {
-            try {
-                const u = new URL(config.baseurl)
-                const host = u.host.replace('.api.', '.').replace(/^api\./, '')
-                return `${u.protocol}//${host}`
-            } catch {
-                return undefined
-            }
-        })()
+        this.urlContext = createUrlContext(config.baseurl)
         registerHandlebarsHelpers()
         this._templates = compileEmailTemplates()
     }
@@ -154,38 +149,17 @@ export class MessagingService {
             return
         }
 
-        const pickAttributes = (attrs: Record<string, any> | undefined): Record<string, any> => {
-            if (!attrs) return {}
-            // Match report behavior: if no attribute whitelist is configured, don't include a full dump.
-            if (!this.reportAttributes || this.reportAttributes.length === 0) return {}
-            const picked: Record<string, any> = {}
-            for (const name of this.reportAttributes) {
-                const direct = attrs[name]
-                const lowerFirst = name ? name.charAt(0).toLowerCase() + name.slice(1) : name
-                const fallback = lowerFirst ? attrs[lowerFirst] : undefined
-                const value = direct ?? fallback
-                if (value !== undefined && value !== null && value !== '') {
-                    picked[name] = value
-                }
-            }
-            return picked
-        }
-
         const accountName =
             context?.accountName || String((formInput as any)?.name || (formInput as any)?.account || 'Unknown Account')
         const accountSource = context?.accountSource || String((formInput as any)?.source || 'Unknown')
-        const pickedAccountAttributes = pickAttributes(context?.accountAttributes)
-        const accountAttributes = Object.keys(pickedAccountAttributes).length > 0 ? pickedAccountAttributes : undefined
+        const pickedAccountAttributes = pickAttributes(context?.accountAttributes, this.reportAttributes)
         const accountId = context?.accountId || String((formInput as any)?.account || '')
         const accountEmail = context?.accountEmail
 
         const candidates =
             context?.candidates?.map((c) => ({
                 ...c,
-                identityUrl:
-                    this.uiOrigin && c.id
-                        ? `${this.uiOrigin}/ui/a/admin/identities/${encodeURIComponent(c.id)}/details/attributes`
-                        : undefined,
+                identityUrl: this.urlContext.identity(c.id),
             })) ?? []
 
         const subject = `Identity Fusion Review Required: ${accountName} [${accountSource}]`
@@ -196,7 +170,7 @@ export class MessagingService {
                     accountSource,
                     accountId: accountId || undefined,
                     accountEmail,
-                    accountAttributes,
+                    accountAttributes: pickedAccountAttributes,
                     matches: candidates.map((candidate: any) => ({
                         identityName: candidate.name || 'Unknown',
                         identityId: candidate.id || undefined,
@@ -301,11 +275,8 @@ export class MessagingService {
      */
     private async sendEmail(recipients: string[], subject: string, body: string): Promise<void> {
         assert(recipients, 'Recipients array is required')
-        const sanitizedRecipients = recipients
-            .filter((r) => typeof r === 'string')
-            .map((r) => r.trim())
-            .filter((r) => r.length > 0)
-        assert(sanitizedRecipients.length > 0, 'At least one recipient is required')
+        const sanitizedRecipientList = sanitizeRecipients(recipients)
+        assert(sanitizedRecipientList.length > 0, 'At least one recipient is required')
         assert(subject, 'Email subject is required')
         assert(body, 'Email body is required')
 
@@ -317,7 +288,7 @@ export class MessagingService {
             input: {
                 subject,
                 body,
-                recipients: sanitizedRecipients,
+                recipients: sanitizedRecipientList,
             },
         }
         const requestParameters: WorkflowsV2025ApiTestWorkflowRequest = {
@@ -325,7 +296,7 @@ export class MessagingService {
             testWorkflowRequestV2025: testRequest,
         }
 
-        this.log.debug(`Sending email to ${sanitizedRecipients.length} recipient(s) via workflow ${workflow.id}`)
+        this.log.debug(`Sending email to ${sanitizedRecipientList.length} recipient(s) via workflow ${workflow.id}`)
         try {
             const response = await this.testWorkflow(requestParameters)
             assert(response, 'Workflow response is required')
@@ -363,7 +334,7 @@ export class MessagingService {
 
             const attrs: any = identity?.attributes ?? {}
             const emailValue = attrs.email ?? attrs.mail ?? attrs.emailAddress
-            const normalized = this.normalizeEmailValue(emailValue)
+            const normalized = normalizeEmailValue(emailValue)
 
             if (normalized.length > 0) {
                 normalized.forEach((e) => emails.add(e))
@@ -373,34 +344,6 @@ export class MessagingService {
         }
 
         return Array.from(emails)
-    }
-
-    /**
-     * Normalize identity "email" attribute(s) into array of strings.
-     * ISC tenants sometimes store email as a string, array, or nested object.
-     */
-    private normalizeEmailValue(value: any): string[] {
-        if (!value) return []
-
-        if (typeof value === 'string') {
-            const v = value.trim()
-            return v ? [v] : []
-        }
-
-        if (Array.isArray(value)) {
-            const out: string[] = []
-            for (const item of value) {
-                out.push(...this.normalizeEmailValue(item))
-            }
-            return out
-        }
-
-        if (typeof value === 'object') {
-            const maybe = (value as any).value ?? (value as any).email ?? (value as any).mail
-            return this.normalizeEmailValue(maybe)
-        }
-
-        return []
     }
 
     /**

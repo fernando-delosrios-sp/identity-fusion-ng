@@ -21,6 +21,7 @@ import { IdentityService } from './identityService'
 import { MessagingService } from './messagingService'
 import { SourceService } from './sourceService'
 import { assert } from '../utils/assert'
+import { capitalizeFirst, toLowerFirstChar, buildAccountIdentifier } from '../utils/attributes'
 import { FusionDecision } from '../model/form'
 import { FusionAccount } from '../model/account'
 
@@ -688,7 +689,7 @@ export class FormService {
                     key: `newidentity.${attrKey}`,
                     elementType: 'TEXT',
                     config: {
-                        label: this.capitalizeFirst(attrName),
+                        label: capitalizeFirst(attrName),
                         // Prefill visible values at definition-time so instances don't render blank.
                         default: String(attrValue),
                     },
@@ -806,7 +807,7 @@ export class FormService {
                         key: `${candidateId}.${attrKey}`,
                         elementType: 'TEXT',
                         config: {
-                            label: this.capitalizeFirst(attrName),
+                            label: capitalizeFirst(attrName),
                             default: String(attrValue),
                         },
                         validations: [],
@@ -824,7 +825,7 @@ export class FormService {
                             key: `${candidateId}.${score.type}.score`,
                             elementType: 'TEXT',
                             config: {
-                                label: `${this.capitalizeFirst(score.type)} score`,
+                                label: `${capitalizeFirst(score.type)} score`,
                                 default: String(score.value),
                             },
                             validations: [],
@@ -835,7 +836,7 @@ export class FormService {
                                 key: `${candidateId}.${score.type}.threshold`,
                                 elementType: 'TEXT',
                                 config: {
-                                    label: `${this.capitalizeFirst(score.type)} threshold`,
+                                    label: `${capitalizeFirst(score.type)} threshold`,
                                     default: String(score.threshold),
                                 },
                                 validations: [],
@@ -1115,12 +1116,6 @@ export class FormService {
         return formConditions
     }
 
-    /**
-     * Capitalize first letter of a string
-     */
-    private capitalizeFirst(str: string): string {
-        return str.charAt(0).toUpperCase() + str.slice(1)
-    }
 
     /**
      * Build form inputs for fusion form definition

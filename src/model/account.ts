@@ -383,29 +383,19 @@ export class FusionAccount {
     // ============================================================================
 
     public addAccountId(id: string, message?: string): void {
-        this._accountIds.add(id)
-        if (message) {
-            this.addHistory(message)
-        }
+        this.addToSet(this._accountIds, id, message)
     }
 
     public removeAccountId(id: string, message?: string): void {
-        if (this._accountIds.delete(id) && message) {
-            this.addHistory(message)
-        }
+        this.removeFromSet(this._accountIds, id, message)
     }
 
     public addMissingAccountId(id: string, message?: string): void {
-        this._missingAccountIds.add(id)
-        if (message) {
-            this.addHistory(message)
-        }
+        this.addToSet(this._missingAccountIds, id, message)
     }
 
     public removeMissingAccountId(id: string, message?: string): void {
-        if (this._missingAccountIds.delete(id) && message) {
-            this.addHistory(message)
-        }
+        this.removeFromSet(this._missingAccountIds, id, message)
     }
 
     // ============================================================================
@@ -413,16 +403,11 @@ export class FusionAccount {
     // ============================================================================
 
     public addStatus(status: string, message?: string): void {
-        this._statuses.add(status)
-        if (message) {
-            this.addHistory(message)
-        }
+        this.addToSet(this._statuses, status, message)
     }
 
     public removeStatus(status: string, message?: string): void {
-        if (this._statuses.delete(status) && message) {
-            this.addHistory(message)
-        }
+        this.removeFromSet(this._statuses, status, message)
     }
 
     public hasStatus(status: string): boolean {
@@ -434,16 +419,11 @@ export class FusionAccount {
     // ============================================================================
 
     public addAction(action: string, message?: string): void {
-        this._actions.add(action)
-        if (message) {
-            this.addHistory(message)
-        }
+        this.addToSet(this._actions, action, message)
     }
 
     public removeAction(action: string, message?: string): void {
-        if (this._actions.delete(action) && message) {
-            this.addHistory(message)
-        }
+        this.removeFromSet(this._actions, action, message)
     }
 
     public setSourceReviewer(sourceId: string): void {
@@ -461,16 +441,11 @@ export class FusionAccount {
     // ============================================================================
 
     public addReview(review: string, message?: string): void {
-        this._reviews.add(review)
-        if (message) {
-            this.addHistory(message)
-        }
+        this.addToSet(this._reviews, review, message)
     }
 
     public removeReview(review: string, message?: string): void {
-        if (this._reviews.delete(review) && message) {
-            this.addHistory(message)
-        }
+        this.removeFromSet(this._reviews, review, message)
     }
 
     public addFusionReview(reviewUrl: string): void {
@@ -490,16 +465,11 @@ export class FusionAccount {
     // ============================================================================
 
     public addSource(source: string, message?: string): void {
-        this._sources.add(source)
-        if (message) {
-            this.addHistory(message)
-        }
+        this.addToSet(this._sources, source, message)
     }
 
     public removeSource(source: string, message?: string): void {
-        if (this._sources.delete(source) && message) {
-            this.addHistory(message)
-        }
+        this.removeFromSet(this._sources, source, message)
     }
 
     // ============================================================================
@@ -515,10 +485,35 @@ export class FusionAccount {
     // Mutation Methods - History
     // ============================================================================
 
+    /**
+     * Add a dated history entry
+     */
     private addHistory(message: string): void {
         const now = new Date().toISOString().split('T')[0]
         const datedMessage = `[${now}] ${message}`
         this._history.push(datedMessage)
+    }
+
+    /**
+     * Helper method to add an item to a Set and optionally log history
+     */
+    private addToSet<T>(set: Set<T>, item: T, message?: string): void {
+        set.add(item)
+        if (message) {
+            this.addHistory(message)
+        }
+    }
+
+    /**
+     * Helper method to remove an item from a Set and optionally log history
+     * @returns true if the item was removed, false otherwise
+     */
+    private removeFromSet<T>(set: Set<T>, item: T, message?: string): boolean {
+        const removed = set.delete(item)
+        if (removed && message) {
+            this.addHistory(message)
+        }
+        return removed
     }
 
     // ============================================================================
