@@ -412,6 +412,13 @@ export class FusionService {
     }
 
     /**
+     * Get reviewers by source ID map
+     */
+    public get reviewersBySourceId(): Map<string, Set<FusionAccount>> {
+        return this._reviewersBySourceId
+    }
+
+    /**
      * Set a fusion account, automatically determining whether to add it as a fusion account
      * or fusion identity based on whether it has an identityId and is not uncorrelated.
      *
@@ -424,7 +431,7 @@ export class FusionService {
     public setFusionAccount(fusionAccount: FusionAccount): void {
         const identityId = fusionAccount.identityId
         const hasIdentityId = identityId && identityId.trim() !== ''
-        const isUncorrelated = fusionAccount.statuses.includes('uncorrelated')
+        const isUncorrelated = fusionAccount.uncorrelated
 
         if (hasIdentityId && !isUncorrelated) {
             // Add to fusion identity map, keyed by identityId (correlated account)
