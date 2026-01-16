@@ -79,6 +79,7 @@ export interface SourceConfig {
     name: string
     forceAggregation?: boolean
     accountFilter?: string
+    accountLimit?: number
 }
 
 // Sources Section
