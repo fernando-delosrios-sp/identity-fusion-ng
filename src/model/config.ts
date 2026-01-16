@@ -257,6 +257,7 @@ export interface InternalConfig {
         readonly correlateAccounts: number
     }
     readonly fusionState?: Record<string, any>
+    readonly proxyUrl: string
 }
 
 // ============================================================================

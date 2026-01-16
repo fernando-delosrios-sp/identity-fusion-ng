@@ -98,10 +98,9 @@ export class FusionAccount {
         fusionAccount._displayName = fusionAccount._name
         fusionAccount._modified = getDateFromISOString(account.modified)
         fusionAccount._disabled = account.disabled ?? false
+        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
         fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
         fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
-        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
-        fusionAccount._history = account.attributes?.history ?? []
         fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])
         fusionAccount._attributeBag.previous = account.attributes ?? {}
         fusionAccount._attributeBag.previous[COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE] = account.uuid!
@@ -157,7 +156,6 @@ export class FusionAccount {
         fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
         fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
         fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
-        fusionAccount._history = account.attributes?.history ?? []
         fusionAccount.setManagedAccount(account)
         fusionAccount.setUnmatched()
         fusionAccount.setUncorrelated()
@@ -494,6 +492,10 @@ export class FusionAccount {
         const now = new Date().toISOString().split('T')[0]
         const datedMessage = `[${now}] ${message}`
         this._history.push(datedMessage)
+    }
+
+    importHistory(history: string[]) {
+        this._history = history
     }
 
     /**
