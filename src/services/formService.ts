@@ -21,7 +21,7 @@ import { IdentityService } from './identityService'
 import { MessagingService } from './messagingService'
 import { SourceService } from './sourceService'
 import { assert } from '../utils/assert'
-import { capitalizeFirst, toLowerFirstChar, buildAccountIdentifier } from '../utils/attributes'
+import { capitalizeFirst } from '../utils/attributes'
 import { FusionDecision } from '../model/form'
 import { FusionAccount } from '../model/account'
 
