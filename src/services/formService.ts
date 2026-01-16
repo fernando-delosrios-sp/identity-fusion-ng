@@ -249,45 +249,52 @@ export class FormService {
                 hasPreviousInstance = true
             }
 
-            const formInstance = await this.createFormInstance(
-                formDefinition.id!,
-                formInput,
-                [reviewerId],
-                fusionSourceId,
-                expire
-            )
-            assert(formInstance, 'Failed to create form instance')
+            const reviewPromise = (async (): Promise<string | undefined> => {
+                const formInstance = await this.createFormInstance(
+                    formDefinition.id!,
+                    formInput,
+                    [reviewerId],
+                    fusionSourceId,
+                    expire
+                )
+                assert(formInstance, 'Failed to create form instance')
 
-            if (formInstance.id) {
-                reviewer.addFusionReview(formInstance.standAloneFormUrl!)
-                this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
+                if (formInstance.id) {
+                    this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
 
-                if (this.messaging) {
-                    if (hasPreviousInstance) {
-                        this.log.debug(
-                            `Previous instance existed for reviewer ${reviewerId}; still sending review email for new instance ${formInstance.id}`
-                        )
+                    if (this.messaging) {
+                        if (hasPreviousInstance) {
+                            this.log.debug(
+                                `Previous instance existed for reviewer ${reviewerId}; still sending review email for new instance ${formInstance.id}`
+                            )
+                        }
+                        try {
+                            await this.messaging.sendFusionEmail(formInstance, {
+                                accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
+                                accountSource: fusionAccount.sourceName,
+                                accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
+                                accountEmail: fusionAccount.email,
+                                accountAttributes: fusionAccount.attributes as any,
+                                candidates: candidates.map((c) => ({
+                                    id: c.id,
+                                    name: c.name,
+                                    attributes: c.attributes,
+                                    scores: c.scores,
+                                })),
+                            })
+                            this.log.debug(`Email notification sent for form ${formInstance.id}`)
+                        } catch (error) {
+                            this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
+                        }
                     }
-                    try {
-                        await this.messaging.sendFusionEmail(formInstance, {
-                            accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
-                            accountSource: fusionAccount.sourceName,
-                            accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
-                            accountEmail: fusionAccount.email,
-                            accountAttributes: fusionAccount.attributes as any,
-                            candidates: candidates.map((c) => ({
-                                id: c.id,
-                                name: c.name,
-                                attributes: c.attributes,
-                                scores: c.scores,
-                            })),
-                        })
-                        this.log.debug(`Email notification sent for form ${formInstance.id}`)
-                    } catch (error) {
-                        this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
-                    }
+
+                    return formInstance.standAloneFormUrl ?? undefined
                 }
-            }
+
+                return undefined
+            })()
+
+            reviewer.addReviewPromise(reviewPromise)
         }
     }
 

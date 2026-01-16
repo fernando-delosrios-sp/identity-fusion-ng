@@ -58,7 +58,7 @@ export const accountCreate = async (
             }
         }
 
-        const iscAccount = fusion.getISCAccount(fusionIdentity)
+        const iscAccount = await fusion.getISCAccount(fusionIdentity)
         assert(iscAccount, 'Failed to generate ISC account from fusion identity')
 
         res.send(iscAccount)

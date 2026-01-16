@@ -140,29 +140,26 @@ export class IdentityService {
         const { missingAccountIds, identityId } = fusionAccount
         const { accountsApi } = this.client
 
-        await Promise.all(
-            missingAccountIds.map(async (accountId) => {
-                const requestParameters: AccountsApiUpdateAccountRequest = {
-                    id: accountId,
-                    requestBody: [
-                        {
-                            op: 'replace',
-                            path: '/identityId',
-                            value: identityId,
-                        },
-                    ],
-                }
+        missingAccountIds.forEach((accountId) => {
+            const requestParameters: AccountsApiUpdateAccountRequest = {
+                id: accountId,
+                requestBody: [
+                    {
+                        op: 'replace',
+                        path: '/identityId',
+                        value: identityId,
+                    },
+                ],
+            }
 
-                const updateAccount = async () => {
-                    return await accountsApi.updateAccount(requestParameters)
-                }
+            const updateAccount = async () => {
+                return await accountsApi.updateAccount(requestParameters)
+            }
 
-                //TODO: handle response
-                const response = this.client.execute(updateAccount)
-                fusionAccount.setCorrelatedAccount(accountId, response)
-                await Promise.resolve(response)
-            })
-        )
+            // Fire-and-track only: correlation outcome shouldn't affect current run state
+            const response = this.client.execute(updateAccount)
+            fusionAccount.addCorrelationPromise(accountId, response)
+        })
 
         return true
     }

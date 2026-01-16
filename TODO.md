@@ -1,5 +1,6 @@
 - Create test artefacts
 - Implement appropriate exception handling
-- Implement batch processing
 - Implement external logging option
 - Improve logging
+- Review account correlation processing
+- Implement max history messages

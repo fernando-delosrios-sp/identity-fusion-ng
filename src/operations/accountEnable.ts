@@ -27,7 +27,7 @@ export const accountEnable = async (
         log.debug(`Enabling fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
         fusionAccount.enable()
 
-        const iscAccount = fusion.getISCAccount(fusionAccount)
+        const iscAccount = await fusion.getISCAccount(fusionAccount)
         assert(iscAccount, 'Failed to generate ISC account from fusion account')
 
         res.send(iscAccount)

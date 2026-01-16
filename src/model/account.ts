@@ -47,7 +47,9 @@ export class FusionAccount {
     private _reviews: Set<string> = new Set()
     private _sources: Set<string> = new Set()
     private _previousAccountIds: Set<string> = new Set()
-    private _correlationPromises: Promise<void>[] = []
+    private _correlationPromises: Array<Promise<unknown>> = []
+    private _pendingReviewUrls: Set<string> = new Set()
+    private _reviewPromises: Array<Promise<string | undefined>> = []
     private _fusionMatches: FusionMatch[] = []
     private _history: string[] = []
 
@@ -328,8 +330,12 @@ export class FusionAccount {
         return this._modified
     }
 
-    public get correlationPromises(): Promise<void>[] {
+    public get correlationPromises(): Array<Promise<unknown>> {
         return [...this._correlationPromises]
+    }
+
+    public get pendingReviewUrls(): string[] {
+        return Array.from(this._pendingReviewUrls)
     }
 
     // ============================================================================
@@ -451,6 +457,47 @@ export class FusionAccount {
     public addFusionReview(reviewUrl: string): void {
         this._reviews.add(reviewUrl)
         this._statuses.add('activeReviews')
+    }
+
+    public addPendingReviewUrl(reviewUrl: string): void {
+        if (reviewUrl) {
+            this._pendingReviewUrls.add(reviewUrl)
+        }
+    }
+
+    public resolvePendingReviewUrls(): void {
+        if (this._pendingReviewUrls.size === 0) {
+            return
+        }
+        for (const url of this._pendingReviewUrls) {
+            this.addFusionReview(url)
+        }
+        this._pendingReviewUrls.clear()
+    }
+
+    public addReviewPromise(promise: Promise<string | undefined>): void {
+        if (promise) {
+            this._reviewPromises.push(promise)
+        }
+    }
+
+    public async resolvePendingOperations(): Promise<void> {
+        if (this._reviewPromises.length > 0) {
+            const reviewResults = await Promise.allSettled(this._reviewPromises)
+            this._reviewPromises = []
+            for (const result of reviewResults) {
+                if (result.status === 'fulfilled' && result.value) {
+                    this.addPendingReviewUrl(result.value)
+                }
+            }
+        }
+
+        if (this._correlationPromises.length > 0) {
+            await Promise.allSettled(this._correlationPromises)
+            this._correlationPromises = []
+        }
+
+        this.resolvePendingReviewUrls()
     }
 
     public removeFusionReview(reviewUrl: string): void {
@@ -659,10 +706,9 @@ export class FusionAccount {
     // Correlation Methods
     // ============================================================================
 
-    public setCorrelatedAccount(accountId: string, promise?: Promise<any>): void {
+    public setCorrelatedAccount(accountId: string, promise?: Promise<unknown>): void {
         if (promise) {
             this._correlationPromises.push(promise)
-            this.addHistory(`Missing account ${accountId} correlated`)
         }
         this._missingAccountIds.delete(accountId)
 
@@ -672,22 +718,18 @@ export class FusionAccount {
         }
     }
 
-    public async correlateMissingAccounts(
-        fn: (accountId: string, identityId: string) => Promise<boolean>
-    ): Promise<void> {
-        this._missingAccountIds.forEach(async (id) => {
-            this._correlationPromises.push(this.correlateMissingAccount(id, fn))
-        })
-    }
-
-    public async correlateMissingAccount(
-        accountId: string,
-        fn: (accountId: string, identityId: string) => Promise<boolean>
-    ): Promise<void> {
-        if (this._identityId && (await fn(accountId, this._identityId))) {
-            this._missingAccountIds.delete(accountId)
-            this.addHistory(`Missing account ${accountId} correlated`)
+    public addCorrelationPromise(accountId: string, promise: Promise<unknown>): void {
+        if (!promise) {
+            return
         }
+        this._correlationPromises.push(promise)
+        promise
+            .then(() => {
+                this.addHistory(`Missing account ${accountId} correlated`)
+            })
+            .catch(() => {
+                // Ignore errors; correlation is async and shouldn't affect current state
+            })
     }
 
     // ============================================================================

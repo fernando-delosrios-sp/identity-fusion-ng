@@ -342,10 +342,11 @@ export class FusionService {
      * List all ISC accounts (fusion accounts and identity accounts)
      */
     public async listISCAccounts(): Promise<StdAccountListOutput[]> {
-        return [
-            ...Array.from(this._fusionAccountMap.values()).map((x) => this.getISCAccount(x)),
-            ...Array.from(this._fusionIdentityMap.values()).map((x) => this.getISCAccount(x)),
+        const accounts = [
+            ...Array.from(this._fusionAccountMap.values()),
+            ...Array.from(this._fusionIdentityMap.values()),
         ]
+        return await Promise.all(accounts.map((x) => this.getISCAccount(x)))
     }
 
     // ------------------------------------------------------------------------
@@ -381,7 +382,8 @@ export class FusionService {
     /**
      * Convert a fusion account to ISC account output format
      */
-    public getISCAccount(fusionAccount: FusionAccount): StdAccountListOutput {
+    public async getISCAccount(fusionAccount: FusionAccount): Promise<StdAccountListOutput> {
+        await fusionAccount.resolvePendingOperations()
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
         const disabled = fusionAccount.disabled
         const key = fusionAccount.key
