@@ -121,15 +121,15 @@ export const FUSION_REVIEW_TEMPLATE = `
                                                                     {{#if this}}
                                                                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; table-layout:fixed;">
                                                                         <tr>
-                                                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase;">
+                                                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase; white-space:nowrap;">
                                                                                 Potential Matches
                                                                             </td>
                                                                         </tr>
                                                                         <tr>
                                                                             <td colspan="4" style="padding:4px 8px;">
-                                                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2;">
+                                                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2; word-break:break-word; overflow-wrap:break-word;">
                                                                                     {{#if identityUrl}}
-                                                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline;">{{identityName}}</a>
+                                                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline; word-break:break-word; overflow-wrap:break-word;">{{identityName}}</a>
                                                                                     {{else}}
                                                                                     {{identityName}}
                                                                                     {{/if}}
@@ -581,15 +581,15 @@ export const FUSION_REPORT_TEMPLATE = `
                                     {{#if this}}
                                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; table-layout:fixed;">
                                         <tr>
-                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase;">
+                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase; white-space:nowrap;">
                                                 Potential Matches
                                             </td>
                                         </tr>
                                         <tr>
                                             <td colspan="4" style="padding:4px 8px;">
-                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2;">
+                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2; word-break:break-word; overflow-wrap:break-word;">
                                                     {{#if identityUrl}}
-                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline;">{{identityName}}</a>
+                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline; word-break:break-word; overflow-wrap:break-word;">{{identityName}}</a>
                                                     {{else}}
                                                     {{identityName}}
                                                     {{/if}}

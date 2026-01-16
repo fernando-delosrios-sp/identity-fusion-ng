@@ -49,7 +49,7 @@ export const accountList = async (
         log.debug('Identities cache cleared')
 
         log.debug('Populating reviewer reviews from form instances')
-        await forms.populateReviewerReviews(fusion.reviewersBySourceId)
+        await forms.populateReviewerMap(fusion.reviewersBySourceId)
         log.debug('Reviewer reviews populated')
 
         log.debug('Processing identity fusion decisions and managed accounts')

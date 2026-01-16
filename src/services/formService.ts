@@ -118,7 +118,7 @@ export class FormService {
      * Populate reviews for all reviewers from all form instances
      * This ensures reviewer accounts have all their assigned form instances in their reviews attribute
      */
-    public async populateReviewerReviews(reviewersBySourceId: Map<string, Set<FusionAccount>>): Promise<void> {
+    public async populateReviewerMap(reviewersBySourceId: Map<string, Set<FusionAccount>>): Promise<void> {
         this.log.debug('Populating reviews for all reviewers from form instances')
         assert(this.fusionFormNamePattern, 'Fusion form name pattern is required')
 

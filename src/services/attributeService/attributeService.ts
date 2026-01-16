@@ -199,6 +199,10 @@ export class AttributeService {
                 // Set the processed value if found
                 if (processedValue !== undefined) {
                     attributes[attribute] = processedValue
+                    if (attribute === 'history') {
+                        const history = processedValue as string[]
+                        fusionAccount.importHistory(history)
+                    }
                 }
             }
         }
