@@ -11,6 +11,7 @@ import {
     SchemaV2025,
     SourcesV2025ApiGetSourceSchemasRequest,
     OwnerDto,
+    SourcesV2025ApiListSourcesRequest,
 } from 'sailpoint-api-client'
 import { BaseConfig, FusionConfig, SourceConfig } from '../../model/config'
 import { ClientService } from '../clientService'
@@ -116,8 +117,9 @@ export class SourceService {
     public async fetchAllSources(): Promise<void> {
         this.log.debug('Fetching all sources')
         const { sourcesApi } = this.client
-        const listSources = async () => {
-            return await sourcesApi.listSources()
+
+        const listSources = async (requestParameters?: SourcesV2025ApiListSourcesRequest) => {
+            return await sourcesApi.listSources(requestParameters)
         }
         const apiSources = await this.client.paginate(listSources)
         assert(apiSources.length > 0, 'Sources not found')
@@ -224,7 +226,7 @@ export class SourceService {
     /**
      * Fetch all accounts for a given source ID, applying SourceConfig.accountFilter if present (for managed sources).
      */
-    public async fetchSourceAccountsById(sourceId: string): Promise<Account[]> {
+    public async fetchSourceAccountsById(sourceId: string, limit?: number): Promise<Account[]> {
         const { accountsApi } = this.client
         const sourceInfo = this.sourcesById.get(sourceId)
         assert(sourceInfo, `Source not found for id: ${sourceId}`)
@@ -239,12 +241,13 @@ export class SourceService {
 
         const requestParameters: AccountsApiListAccountsRequest = {
             filters,
+            limit,
         }
 
         const listAccounts = async (params: AccountsApiListAccountsRequest) => {
             return await accountsApi.listAccounts(params)
         }
-        return await this.client.paginate<Account, AccountsApiListAccountsRequest>(listAccounts, requestParameters)
+        return await this.client.paginate(listAccounts, requestParameters)
     }
 
     /**
@@ -262,7 +265,11 @@ export class SourceService {
      */
     public async fetchManagedAccounts(): Promise<void> {
         this.log.debug(`Fetching managed accounts from ${this.managedSources.length} source(s)`)
-        const accounts = (await Promise.all(this.managedSources.map((s) => this.fetchSourceAccountsById(s.id)))).flat()
+        const accounts = (
+            await Promise.all(
+                this.managedSources.map((s) => this.fetchSourceAccountsById(s.id, s.config?.accountLimit))
+            )
+        ).flat()
         this.managedAccountsById = new Map(accounts.map((account) => [account.id!, account]))
         this.log.debug(`Fetched ${this.managedAccountsById.size} managed account(s)`)
     }

@@ -160,6 +160,13 @@
                                             "type": "text",
                                             "required": false,
                                             "helpKey": "Filter query to limit which accounts from this source are processed (uses Identity Security Cloud search/filter syntax)"
+                                        },
+                                        {
+                                            "key": "accountLimit",
+                                            "label": "Account aggregation limit",
+                                            "type": "number",
+                                            "required": false,
+                                            "helpKey": "Set the maximum number of accounts to aggregate from this source. This is useful for initial loading of a large number of accounts with potential internal duplicates."
                                         }
                                     ]
                                 }

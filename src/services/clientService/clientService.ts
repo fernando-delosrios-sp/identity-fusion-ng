@@ -235,11 +235,13 @@ export class ClientService {
     ): Promise<T[]> {
         const pageSize = this.pageSize // Paging size is driven by config
         const allItems: T[] = []
+        const limit = (baseParameters as any).limit ?? pageSize
+        const initialLimit = limit < pageSize ? limit : pageSize
 
         // Make initial request to get first page
         const initialParams = {
             ...baseParameters,
-            limit: pageSize,
+            limit: initialLimit,
             offset: 0,
         } as TRequestParams
 
@@ -248,7 +250,7 @@ export class ClientService {
         allItems.push(...initialPage)
 
         // If the first page is smaller than pageSize, we already have all data
-        if (initialPage.length < pageSize) {
+        if (initialPage.length < pageSize || initialPage.length === limit) {
             return allItems
         }
 
@@ -261,7 +263,7 @@ export class ClientService {
             const pageParams = {
                 ...baseParameters,
                 limit: pageSize,
-                offset: offset,
+                offset,
             } as TRequestParams
 
             const pageResponse = await this.execute<{ data: T[] }>(() => callFunction(pageParams), priority)
