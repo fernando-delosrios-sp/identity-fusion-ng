@@ -317,11 +317,11 @@ export class FormService {
     }
 
     /**
-     * Get assignment fusion decision for an identity UID
+     * Get assignment fusion decision for an identity ID
      */
-    public getAssignmentFusionDecision(identityUid: string): FusionDecision | undefined {
+    public getAssignmentFusionDecision(identityId: string): FusionDecision | undefined {
         assert(this._fusionAssignmentDecisionMap, 'Fusion duplicate decisions not fetched')
-        return this._fusionAssignmentDecisionMap.get(identityUid)
+        return this._fusionAssignmentDecisionMap.get(identityId)
     }
 
     /**
@@ -652,6 +652,12 @@ export class FormService {
         }
 
         this._fusionIdentityDecisions.push(fusionDecision)
+
+        // Populate assignment decision map keyed by identityId (the identity the account is assigned to)
+        if (existingIdentity) {
+            assert(this._fusionAssignmentDecisionMap, 'Fusion assignment decision map is not initialized')
+            this._fusionAssignmentDecisionMap.set(existingIdentity, fusionDecision)
+        }
 
         this.log.debug(
             `Processed fusion decision for account ${accountId}, reviewer ${reviewerIdentityId}, ` +

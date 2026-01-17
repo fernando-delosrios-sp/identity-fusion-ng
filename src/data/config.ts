@@ -28,15 +28,22 @@ function assert<T>(valueOrCondition: T | null | undefined | boolean, message: st
  * Uses default SDK logger instead of ServiceRegistry
  * @returns true if assertion passed, false if it failed
  */
-function softAssert(condition: boolean, message: string, level: 'warn' | 'error' = 'warn'): condition is true {
-    if (!condition) {
+function softAssert<T>(
+    valueOrCondition: T | null | undefined,
+    message: string,
+    level: 'warn' | 'error' = 'warn'
+): valueOrCondition is NonNullable<T> {
+    const isNullish = valueOrCondition === null || valueOrCondition === undefined
+    const isFalse = valueOrCondition === false
+
+    if (isNullish || isFalse) {
         if (level === 'error') {
             logger.error(`safeReadConfig: ${message}`)
         } else {
             logger.warn(`safeReadConfig: ${message}`)
         }
     }
-    return condition
+    return !(isNullish || isFalse)
 }
 
 const internalConfig = {

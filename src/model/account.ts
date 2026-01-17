@@ -158,7 +158,6 @@ export class FusionAccount {
         fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
         fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
         fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
-        fusionAccount.setManagedAccount(account)
         fusionAccount.setUnmatched()
         fusionAccount.setUncorrelated()
 

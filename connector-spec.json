@@ -19,6 +19,7 @@
         "fusionFormExpirationDays": 7,
         "fusionAverageScore": 80,
         "provisioningTimeout": 300,
+        "includeIdentities": true,
         "identityScopeQuery": "*",
         "correlateOnAggregation": true,
         "attributeMerge": "first",
@@ -110,10 +111,19 @@
                     "sectionHelpMessage": "<strong>Define which identities are in scope for processing.</strong><br><br>Use <strong>Identity Scope Query</strong> to limit which identities are evaluated by the connector. This typically uses your Identity Security Cloud search or filter syntax to select identities (for example, only active workers, a specific population, or users from certain sources). Only identities that match this query are considered during processing.",
                     "items": [
                         {
+                            "key": "includeIdentities",
+                            "label": "Include identities in the scope?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Include identities outside the sources scope in the process"
+                        },
+                        {
                             "key": "identityScopeQuery",
                             "label": "Identity Scope Query",
                             "type": "text",
-                            "required": false,
+                            "required": true,
+                            "parentKey": "includeIdentities",
+                            "parentValue": "true",
                             "helpKey": "Search or filter query to limit which identities are evaluated by the connector (for example, only active workers, a specific population, or users from certain sources)"
                         }
                     ]

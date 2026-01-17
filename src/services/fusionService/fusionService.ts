@@ -97,6 +97,21 @@ export class FusionService {
         await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
+    public async resetState(): Promise<void> {
+        const fusionSourceId = this.sources.fusionSourceId
+        const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperationV2025: [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/fusionState',
+                    value: false,
+                },
+            ],
+        }
+        await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
+    }
+
     // ------------------------------------------------------------------------
     // Public Fusion Account Processing Methods
     // ------------------------------------------------------------------------
@@ -154,7 +169,7 @@ export class FusionService {
         if (identity) {
             fusionAccount.addIdentityLayer(identity)
 
-            const fusionDecision = this.forms.getAssignmentFusionDecision(identity.attributes?.uid)
+            const fusionDecision = this.forms.getAssignmentFusionDecision(identityId)
             fusionAccount.addFusionDecisionLayer(fusionDecision)
         }
 

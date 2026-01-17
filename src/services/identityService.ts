@@ -15,6 +15,7 @@ import { FusionAccount } from '../model/account'
 export class IdentityService {
     private identitiesById: Map<string, IdentityDocument> = new Map()
     private readonly identityScopeQuery?: string
+    private readonly includeIdentities: boolean
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -26,6 +27,7 @@ export class IdentityService {
         private client: ClientService
     ) {
         this.identityScopeQuery = config.identityScopeQuery
+        this.includeIdentities = config.includeIdentities ?? true
     }
 
     // ------------------------------------------------------------------------
@@ -48,6 +50,11 @@ export class IdentityService {
      * Fetch identities and cache them
      */
     public async fetchIdentities(): Promise<void> {
+        if (!this.includeIdentities) {
+            this.log.info('Identity fetching disabled by configuration, skipping identity fetch.')
+            return
+        }
+
         if (this.identityScopeQuery) {
             this.log.info('Fetching identities.')
 
