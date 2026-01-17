@@ -1,6 +1,6 @@
 import { Response, StdAccountListInput, StdAccountListOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { assert } from '../utils/assert'
+import { assert, softAssert } from '../utils/assert'
 
 export const accountList = async (
     serviceRegistry: ServiceRegistry,
@@ -17,6 +17,7 @@ export const accountList = async (
         if (fusion.isReset()) {
             log.info('Reset flag detected, disabling reset and exiting')
             await fusion.disableReset()
+            await fusion.resetState()
             return
         }
 
@@ -60,9 +61,11 @@ export const accountList = async (
             log.info('Generating and sending fusion report')
             const fusionOwner = sources.fusionSourceOwner
             const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
-            assert(fusionOwnerAccount, 'Fusion owner account not found')
-            const report = fusion.generateReport()
-            await messaging.sendReport(report, fusionOwnerAccount)
+            softAssert(fusionOwnerAccount, 'Fusion owner account not found')
+            if (fusionOwnerAccount) {
+                const report = fusion.generateReport()
+                await messaging.sendReport(report, fusionOwnerAccount)
+            }
         }
 
         const accounts = await fusion.listISCAccounts()

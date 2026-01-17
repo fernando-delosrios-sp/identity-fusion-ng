@@ -46,8 +46,9 @@ export const processAttributeMapping = (
     sourceAttributeMap: Map<string, Attributes[]>,
     sourceOrder: string[]
 ): any => {
-    const { sourceAttributes, attributeMerge, source: specifiedSource } = config
+    const { sourceAttributes, attributeName, attributeMerge, source: specifiedSource } = config
     const multiValue: string[] = []
+    const attributeNames = Array.from(new Set([...sourceAttributes, attributeName]))
 
     // Process sources in established order
     for (const sourceName of sourceOrder) {
@@ -65,8 +66,8 @@ export const processAttributeMapping = (
         for (const account of accounts) {
             // Look for values in source attributes (in order of sourceAttributes array)
             const values: any[] = []
-            for (const sourceAttr of sourceAttributes) {
-                const value = account[sourceAttr]
+            for (const attribute of attributeNames) {
+                const value = account[attribute]
                 if (value !== undefined && value !== null && value !== '') {
                     values.push(value)
                     // For 'first' and 'source' strategies, stop after first match

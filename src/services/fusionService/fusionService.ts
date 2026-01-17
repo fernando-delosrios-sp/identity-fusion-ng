@@ -97,6 +97,21 @@ export class FusionService {
         await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
+    public async resetState(): Promise<void> {
+        const fusionSourceId = this.sources.fusionSourceId
+        const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperationV2025: [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/fusionState',
+                    value: false,
+                },
+            ],
+        }
+        await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
+    }
+
     // ------------------------------------------------------------------------
     // Public Fusion Account Processing Methods
     // ------------------------------------------------------------------------
@@ -154,7 +169,7 @@ export class FusionService {
         if (identity) {
             fusionAccount.addIdentityLayer(identity)
 
-            const fusionDecision = this.forms.getAssignmentFusionDecision(identity.attributes?.uid)
+            const fusionDecision = this.forms.getAssignmentFusionDecision(identityId)
             fusionAccount.addFusionDecisionLayer(fusionDecision)
         }
 
@@ -342,10 +357,11 @@ export class FusionService {
      * List all ISC accounts (fusion accounts and identity accounts)
      */
     public async listISCAccounts(): Promise<StdAccountListOutput[]> {
-        return [
-            ...Array.from(this._fusionAccountMap.values()).map((x) => this.getISCAccount(x)),
-            ...Array.from(this._fusionIdentityMap.values()).map((x) => this.getISCAccount(x)),
+        const accounts = [
+            ...Array.from(this._fusionAccountMap.values()),
+            ...Array.from(this._fusionIdentityMap.values()),
         ]
+        return await Promise.all(accounts.map((x) => this.getISCAccount(x)))
     }
 
     // ------------------------------------------------------------------------
@@ -381,7 +397,8 @@ export class FusionService {
     /**
      * Convert a fusion account to ISC account output format
      */
-    public getISCAccount(fusionAccount: FusionAccount): StdAccountListOutput {
+    public async getISCAccount(fusionAccount: FusionAccount): Promise<StdAccountListOutput> {
+        await fusionAccount.resolvePendingOperations()
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
         const disabled = fusionAccount.disabled
         const key = fusionAccount.key

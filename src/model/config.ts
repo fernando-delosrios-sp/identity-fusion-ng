@@ -71,6 +71,7 @@ export type ConnectionSettingsMenu = ConnectionSettingsSection
 
 // Scope Section
 export interface ScopeSection {
+    includeIdentities?: boolean
     identityScopeQuery?: string
 }
 
