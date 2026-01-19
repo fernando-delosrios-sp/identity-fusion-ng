@@ -2,16 +2,23 @@
 // Add a proxy_url configuration parameter to your ISC source
 
 import { CommandHandler, ConnectorError, createConnector } from '@sailpoint/connector-sdk'
-import { safeReadConfig } from './data/config'
-import { FusionConfig } from './model/config'
+import { safeReadConfig } from '../data/config'
+import { FusionConfig } from '../model/config'
 const KEEPALIVE = 2.5 * 60 * 1000
 
-const proxy: CommandHandler = async (context, input, res) => {
+export const isProxyService = (config: FusionConfig) => {
+    return config.proxyEnabled && process.env.PROXY_PASSWORD !== undefined
+}
+
+export const proxy: CommandHandler = async (context, input, res) => {
     const config: FusionConfig = await safeReadConfig()
     const interval = setInterval(() => {
         res.keepAlive()
     }, KEEPALIVE)
     try {
+        if (!config.proxyEnabled || !config.proxyUrl) {
+            throw new ConnectorError('Proxy mode is not enabled or proxy URL is missing')
+        }
         const { proxyUrl } = config
         const body = {
             type: context.commandType,

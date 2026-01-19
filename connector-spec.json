@@ -23,7 +23,6 @@
         "identityScopeQuery": "*",
         "correlateOnAggregation": true,
         "attributeMerge": "first",
-        "spConnEnableStatefulCommands": false,
         "enableQueue": true,
         "enableRetry": true,
         "maxRetries": 20,
@@ -35,6 +34,9 @@
         "retryDelay": 1000,
         "batchSize": 250,
         "externalLoggingLevel": "info",
+        "proxyEnabled": false,
+        "proxyUrl": "",
+        "proxyPassword": "",
         "maxAttempts": 100,
         "digits": 1,
         "counterStart": 1,
@@ -647,13 +649,6 @@
                     "sectionHelpMessage": "<strong>Advanced options for development and troubleshooting.</strong><br><br>Enable <strong>Support for incremental counters</strong> to turn on stateful commands that allow counter-based attributes to increment consistently across connector runs. This is required if you use counter-based attribute definition.<br><br>Use <strong>Reset accounts?</strong> during testing or troubleshooting to force the connector to rebuild accounts from scratch on the next run. This can help validate configuration changes but should be used carefully in production environments.",
                     "items": [
                         {
-                            "key": "spConnEnableStatefulCommands",
-                            "label": "Support for incremental counters",
-                            "required": true,
-                            "type": "toggle",
-                            "helpKey": "Enable stateful commands required for counter-based attributes to increment consistently across connector runs"
-                        },
-                        {
                             "key": "reset",
                             "label": "Reset accounts?",
                             "type": "toggle",
@@ -768,6 +763,38 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled)"
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Proxy Settings",
+                    "sectionHelpMessage": "<strong>Enable proxy mode to delegate processing to an external endpoint.</strong><br><br>Turn on <strong>Enable proxy mode?</strong> to have the connector forward all processing to a custom external service instead of performing processing locally.<br><br>When proxy mode is enabled, configure the <strong>Proxy URL</strong> for the external endpoint and a <strong>Proxy password</strong> or secret used by the external service. Set <strong>PROXY_PASSWORD</strong> environment variable to the same value on your proxy server.</strong>",
+                    "items": [
+                        {
+                            "key": "proxyEnabled",
+                            "label": "Enable proxy mode?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Enable proxy mode to delegate all processing to an external endpoint"
+                        },
+                        {
+                            "key": "proxyUrl",
+                            "label": "Proxy URL",
+                            "type": "url",
+                            "required": false,
+                            "parentKey": "proxyEnabled",
+                            "parentValue": "true",
+                            "helpKey": "URL of the external endpoint that will handle processing when proxy mode is enabled"
+                        },
+                        {
+                            "key": "proxyPassword",
+                            "label": "Proxy password",
+                            "type": "secret",
+                            "required": true,
+                            "parentKey": "proxyEnabled",
+                            "parentValue": "true",
+                            "helpKey": "Password or secret used by the external endpoint when proxy mode is enabled. Set PROXY_PASSWORD environment variable to the same value on your proxy server."
                         }
                     ]
                 }

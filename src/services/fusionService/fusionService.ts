@@ -38,6 +38,7 @@ export class FusionService {
     private readonly urlContext: UrlContext
     public readonly fusionOwnerIsGlobalReviewer: boolean
     public readonly fusionReportOnAggregation: boolean
+    public newManagedAccountsCount: number = 0
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -254,6 +255,24 @@ export class FusionService {
     public async processIdentityFusionDecisions(): Promise<void> {
         const identityFusionDecisions = this.forms.getIdentityFusionDecisions()
         this.log.debug(`Processing ${identityFusionDecisions.length} identity fusion decision(s)`)
+
+        // First, populate reviewer reviews from pending (unfinished) decisions that have form URLs.
+        // This replaces FormService.populateReviewerMap and avoids extra form/instance API calls.
+        let pendingReviews = 0
+        for (const decision of identityFusionDecisions) {
+            assert(decision.formUrl, 'Form URL is required for pending reviews')
+            if (!decision.finished) {
+                const reviewer = this._fusionIdentityMap.get(decision.submitter.id)
+                if (reviewer) {
+                    reviewer.addFusionReview(decision.formUrl)
+                    pendingReviews++
+                }
+            }
+
+        }
+        this.log.debug(`Populated reviewer reviews from fusion decisions - added ${pendingReviews} pending review(s)`)
+
+        // Then, apply only finished decisions to fusion identities.
         await Promise.all(identityFusionDecisions.map((x) => this.processIdentityFusionDecision(x)))
         this.log.debug('Identity fusion decisions processing completed')
     }
@@ -262,6 +281,15 @@ export class FusionService {
      * Process a single identity fusion decision
      */
     public async processIdentityFusionDecision(fusionDecision: FusionDecision): Promise<void> {
+        // Skip unfinished decisions – they represent in-progress reviews and should not
+        // yet affect fusion identity state.
+        if (!fusionDecision.finished) {
+            this.log.debug(
+                `Skipping unfinished fusion decision for account ${fusionDecision.account.id} (identity: ${fusionDecision.identityId ?? 'new'})`
+            )
+            return
+        }
+
         let fusionAccount: FusionAccount
         if (fusionDecision.newIdentity) {
             fusionAccount = FusionAccount.fromFusionDecision(this.config, fusionDecision)
@@ -294,7 +322,7 @@ export class FusionService {
      */
     public async processManagedAccounts(): Promise<void> {
         const { managedAccounts } = this.sources
-
+        this.newManagedAccountsCount = managedAccounts.length
         this.log.debug(`Processing ${managedAccounts.length} managed account(s)`)
         await Promise.all(managedAccounts.map((x: Account) => this.processManagedAccount(x)))
         this.log.debug('Managed accounts processing completed')
@@ -512,7 +540,7 @@ export class FusionService {
 
         return {
             accounts,
-            totalAccounts: this._fusionAccountMap.size,
+            totalAccounts: this.newManagedAccountsCount,
             potentialDuplicates,
             reportDate: new Date(),
         }
