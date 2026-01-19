@@ -35,6 +35,9 @@
         "retryDelay": 1000,
         "batchSize": 250,
         "externalLoggingLevel": "info",
+        "proxyEnabled": false,
+        "proxyUrl": "",
+        "proxyPassword": "",
         "maxAttempts": 100,
         "digits": 1,
         "counterStart": 1,
@@ -768,6 +771,38 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled)"
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Proxy Settings",
+                    "sectionHelpMessage": "<strong>Enable proxy mode to delegate processing to an external endpoint.</strong><br><br>Turn on <strong>Enable proxy mode?</strong> to have the connector forward all processing to a custom external service instead of performing processing locally.<br><br>When proxy mode is enabled, configure the <strong>Proxy URL</strong> for the external endpoint and, if needed, a <strong>Proxy password</strong> or secret used by the external service.",
+                    "items": [
+                        {
+                            "key": "proxyEnabled",
+                            "label": "Enable proxy mode?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Enable proxy mode to delegate all processing to an external endpoint"
+                        },
+                        {
+                            "key": "proxyUrl",
+                            "label": "Proxy URL",
+                            "type": "url",
+                            "required": false,
+                            "parentKey": "proxyEnabled",
+                            "parentValue": "true",
+                            "helpKey": "URL of the external endpoint that will handle processing when proxy mode is enabled"
+                        },
+                        {
+                            "key": "proxyPassword",
+                            "label": "Proxy password",
+                            "type": "secret",
+                            "required": false,
+                            "parentKey": "proxyEnabled",
+                            "parentValue": "true",
+                            "helpKey": "Password or secret used by the external endpoint when proxy mode is enabled. Set PROXY_PASSWORD environment variable to the same value on your proxy server."
                         }
                     ]
                 }

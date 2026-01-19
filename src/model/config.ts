@@ -230,8 +230,29 @@ export interface AdvancedConnectionSettingsSection {
     enablePriority?: boolean
 }
 
+// Proxy Settings Section
+export interface ProxySettingsSection {
+    /**
+     * Enable proxy mode to delegate all processing to an external endpoint.
+     */
+    proxyEnabled?: boolean
+
+    /**
+     * URL of the external endpoint that will handle processing when proxy mode is enabled.
+     */
+    proxyUrl?: string
+
+    /**
+     * Password or secret used by the external endpoint when proxy mode is enabled.
+     */
+    proxyPassword?: string
+}
+
 // Advanced Settings Menu
-export interface AdvancedSettingsMenu extends DeveloperSettingsSection, AdvancedConnectionSettingsSection {}
+export interface AdvancedSettingsMenu
+    extends DeveloperSettingsSection,
+        AdvancedConnectionSettingsSection,
+        ProxySettingsSection {}
 
 // ============================================================================
 // Internal/Computed fields
@@ -259,7 +280,6 @@ export interface InternalConfig {
         readonly correlateAccounts: number
     }
     readonly fusionState?: Record<string, any>
-    readonly proxyUrl: string
 }
 
 // ============================================================================

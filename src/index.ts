@@ -26,6 +26,7 @@ import { accountEnable } from './operations/accountEnable'
 import { accountDisable } from './operations/accountDisable'
 import { entitlementList } from './operations/entitlementList'
 import { accountDiscoverSchema } from './operations/accountDiscoverSchema'
+import { isProxyService, proxy } from './utils/proxy'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -35,11 +36,22 @@ export const connector = async () => {
     const stdTest: StdTestConnectionHandler = async (context, input, res) => {
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.testConnection) {
-                logger.info('Using custom test connection implementation')
+            const isCustom = context.testConnection !== undefined
+            const isProxy = isProxyService(config)
+            const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
+            logger.info(`Running in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.testConnection(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await testConnection(serviceRegistry, input, res)
             }
-            const testConnectionImpl: typeof testConnection = context.testConnection ?? testConnection
-            await testConnectionImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError('Failed to test connection', ConnectorErrorType.Generic)
@@ -49,34 +61,61 @@ export const connector = async () => {
     }
 
     const stdAccountList: StdAccountListHandler = async (context, input, res): Promise<void> => {
-        const interval = setInterval(() => {
-            res.keepAlive()
-        }, config.processingWait)
+        const isCustom = context.accountList !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
+        const interval =
+            runMode === 'proxy'
+                ? undefined
+                : setInterval(() => {
+                      res.keepAlive()
+                  }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountList) {
-                logger.info('Using custom account list implementation')
+            logger.info(`Running accountList in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountList(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountList(serviceRegistry, input, res)
             }
-            const accountListImpl: typeof accountList = context.accountList ?? accountList
-            await accountListImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError('Failed to aggregate accounts', ConnectorErrorType.Generic)
         } finally {
             ServiceRegistry.clear()
-            clearInterval(interval)
+            if (interval) {
+                clearInterval(interval)
+            }
         }
     }
 
     const stdAccountRead: StdAccountReadHandler = async (context, input, res): Promise<void> => {
+        const isCustom = context.accountRead !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountRead) {
-                logger.info('Using custom account read implementation')
+            logger.info(`Running accountRead in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountRead(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountRead(serviceRegistry, input, res)
             }
-            const accountReadImpl: typeof accountRead = context.accountRead ?? accountRead
-            await accountReadImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError(`Failed to read account ${input.identity}`, ConnectorErrorType.Generic)
@@ -86,13 +125,24 @@ export const connector = async () => {
     }
 
     const stdAccountCreate: StdAccountCreateHandler = async (context, input, res) => {
+        const isCustom = context.accountCreate !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountCreate) {
-                logger.info('Using custom account create implementation')
+            logger.info(`Running accountCreate in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountCreate(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountCreate(serviceRegistry, input, res)
             }
-            const accountCreateImpl: typeof accountCreate = context.accountCreate ?? accountCreate
-            await accountCreateImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError(
@@ -105,34 +155,61 @@ export const connector = async () => {
     }
 
     const stdAccountUpdate: StdAccountUpdateHandler = async (context, input, res) => {
-        const interval = setInterval(() => {
-            res.keepAlive()
-        }, config.processingWait)
+        const isCustom = context.accountUpdate !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
+        const interval =
+            runMode === 'proxy'
+                ? undefined
+                : setInterval(() => {
+                      res.keepAlive()
+                  }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountUpdate) {
-                logger.info('Using custom account update implementation')
+            logger.info(`Running accountUpdate in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountUpdate(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountUpdate(serviceRegistry, input, res)
             }
-            const accountUpdateImpl: typeof accountUpdate = context.accountUpdate ?? accountUpdate
-            await accountUpdateImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError(`Failed to update account ${input.identity}`, ConnectorErrorType.Generic)
         } finally {
             ServiceRegistry.clear()
-            clearInterval(interval)
+            if (interval) {
+                clearInterval(interval)
+            }
         }
     }
 
     const stdAccountEnable: StdAccountEnableHandler = async (context, input, res) => {
+        const isCustom = context.accountEnable !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountEnable) {
-                logger.info('Using custom account enable implementation')
+            logger.info(`Running accountEnable in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountEnable(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountEnable(serviceRegistry, input, res)
             }
-            const accountEnableImpl: typeof accountEnable = context.accountEnable ?? accountEnable
-            await accountEnableImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError(`Failed to enable account ${input.identity}`, ConnectorErrorType.Generic)
@@ -142,13 +219,24 @@ export const connector = async () => {
     }
 
     const stdAccountDisable: StdAccountDisableHandler = async (context, input, res) => {
+        const isCustom = context.accountDisable !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountDisable) {
-                logger.info('Using custom account disable implementation')
+            logger.info(`Running accountDisable in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountDisable(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountDisable(serviceRegistry, input, res)
             }
-            const accountDisableImpl: typeof accountDisable = context.accountDisable ?? accountDisable
-            await accountDisableImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError(`Failed to disable account ${input.identity}`, ConnectorErrorType.Generic)
@@ -158,13 +246,24 @@ export const connector = async () => {
     }
 
     const stdEntitlementList: StdEntitlementListHandler = async (context, input, res) => {
+        const isCustom = context.entitlementList !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.entitlementList) {
-                logger.info('Using custom entitlement list implementation')
+            logger.info(`Running entitlementList in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.entitlementList(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await entitlementList(serviceRegistry, input, res)
             }
-            const entitlementListImpl: typeof entitlementList = context.entitlementList ?? entitlementList
-            await entitlementListImpl(serviceRegistry, input, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError(`Failed to list entitlements for type ${input.type}`, ConnectorErrorType.Generic)
@@ -174,14 +273,24 @@ export const connector = async () => {
     }
 
     const stdAccountDiscoverSchema: StdAccountDiscoverSchemaHandler = async (context, input, res) => {
+        const isCustom = context.accountDiscoverSchema !== undefined
+        const isProxy = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
-            if (context.accountDiscoverSchema) {
-                logger.info('Using custom account discover schema implementation')
+            logger.info(`Running accountDiscoverSchema in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountDiscoverSchema(serviceRegistry, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountDiscoverSchema(serviceRegistry, res)
             }
-            const accountDiscoverSchemaImpl: typeof accountDiscoverSchema =
-                context.accountDiscoverSchema ?? accountDiscoverSchema
-            await accountDiscoverSchemaImpl(serviceRegistry, res)
         } catch (error) {
             logger.error(error)
             throw new ConnectorError('Failed to discover schema', ConnectorErrorType.Generic)
