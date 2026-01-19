@@ -8,6 +8,16 @@ type Account = {
     score?: Score
 }
 
+/**
+ * Minimal account type for FusionDecision - only includes fields actually used.
+ * Attributes are not needed since they're never accessed from FusionDecision.
+ */
+type FusionDecisionAccount = {
+    id: string
+    name: string
+    sourceName: string
+}
+
 type User = {
     id: string
     email: string
@@ -22,10 +32,20 @@ type Score = {
 
 export type FusionDecision = {
     submitter: User
-    account: Account
+    account: FusionDecisionAccount
     newIdentity: boolean
     identityId?: string
     comments: string
+    /**
+     * Indicates whether the reviewer has finished the decision.
+     * Unfinished decisions are kept for reviewer context but skipped by fusion processing.
+     */
+    finished: boolean
+    /**
+     * Optional URL of the underlying form instance (standalone form).
+     * Used to populate reviewer review links without refetching form instances.
+     */
+    formUrl?: string
 }
 export type FusionRequest = {
     title: string

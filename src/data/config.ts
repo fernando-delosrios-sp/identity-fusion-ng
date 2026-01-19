@@ -154,7 +154,6 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     // ============================================================================
     // Developer Settings defaults
     // ============================================================================
-    config.spConnEnableStatefulCommands = config.spConnEnableStatefulCommands ?? false
     config.reset = config.reset ?? false
     // Default from connector-spec.json: provisioningTimeout: 300
     config.provisioningTimeout = config.provisioningTimeout ?? 300

@@ -165,7 +165,6 @@ export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSetti
 
 // Developer Settings Section
 export interface DeveloperSettingsSection {
-    spConnEnableStatefulCommands: boolean
     reset: boolean
     provisioningTimeout?: number
     externalLoggingEnabled: boolean
