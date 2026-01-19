@@ -36,7 +36,7 @@ import { createFusionDecision } from './formProcessor'
 export class FormService {
     private _formsToDelete: string[] = []
     private _fusionIdentityDecisions?: FusionDecision[]
-    private _fusionAssignmentDecisionMap?: Map<string, FusionDecision>
+    private _fusionAssignmentDecisionMap: Map<string, FusionDecision> = new Map()
     private readonly fusionFormNamePattern: string
     private readonly fusionFormExpirationDays: number
     private readonly fusionFormAttributes?: string[]
@@ -254,7 +254,6 @@ export class FormService {
      * Get assignment fusion decision for an identity ID
      */
     public getAssignmentFusionDecision(identityId: string): FusionDecision | undefined {
-        assert(this._fusionAssignmentDecisionMap, 'Fusion duplicate decisions not fetched')
         return this._fusionAssignmentDecisionMap.get(identityId)
     }
 

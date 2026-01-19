@@ -105,7 +105,6 @@ export const connector = async () => {
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
             logger.info(`Running accountRead in ${runMode} mode`)
-
             switch (runMode) {
                 case 'custom':
                     await context.accountRead(serviceRegistry, input, res)

@@ -146,8 +146,6 @@ export class FusionService {
         const key = this.attributes.getSimpleKey(fusionAccount)
         fusionAccount.setKey(key)
 
-        // Add to appropriate map based on correlation status
-        // Note: fromFusionAccount already sets the uncorrelated status if account.uncorrelated is true
         this.setFusionAccount(fusionAccount)
 
         return fusionAccount
@@ -177,13 +175,7 @@ export class FusionService {
         // Pass the captured map reference directly
         fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
-        // Account edition feature removed: edit decisions are no longer processed
-
-        await this.attributes.registerUniqueAttributes(fusionAccount)
-        if (fusionAccount.needsRefresh) {
-            this.attributes.mapAttributes(fusionAccount)
-            await this.attributes.refreshAttributes(fusionAccount)
-        }
+        await this.attributes.processFusionAccountAttributes(fusionAccount)
 
         if (!account.uncorrelated && this.correlateOnAggregation) {
             this.identities.correlateAccounts(fusionAccount)
