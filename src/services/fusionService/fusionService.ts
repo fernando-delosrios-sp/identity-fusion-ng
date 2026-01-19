@@ -281,7 +281,7 @@ export class FusionService {
      * Process a single identity fusion decision
      */
     public async processIdentityFusionDecision(fusionDecision: FusionDecision): Promise<void> {
-        // Skip unfinished decisions – they represent in-progress reviews and should not
+        // Skip unfinished decisions - they represent in-progress reviews and should not
         // yet affect fusion identity state.
         if (!fusionDecision.finished) {
             this.log.debug(
