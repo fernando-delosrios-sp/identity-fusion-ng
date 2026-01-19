@@ -2,8 +2,6 @@
 // Type Definitions
 // ============================================================================
 
-import { SourceConfig } from '../../model/config'
-
 export type FusionReportScore = {
     attribute: string
     algorithm?: string

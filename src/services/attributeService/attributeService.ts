@@ -2,7 +2,7 @@ import { FusionConfig, AttributeMap, AttributeDefinition, SourceConfig } from '.
 import { LogService } from '../logService'
 import { FusionAccount } from '../../model/account'
 import { SchemaService } from '../schemaService'
-import { CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType } from '@sailpoint/connector-sdk'
+import { CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType, StandardCommand } from '@sailpoint/connector-sdk'
 import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from './formatting'
 import { LockService } from '../lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
@@ -41,7 +41,8 @@ export class AttributeService {
         private schemas: SchemaService,
         private sourceService: SourceService,
         private log: LogService,
-        private locks: LockService
+        private locks: LockService,
+        private commandType?: StandardCommand
     ) {
         this.attributeMaps = config.attributeMaps
         this.attributeMerge = config.attributeMerge
@@ -255,6 +256,22 @@ export class AttributeService {
         const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
 
         await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
+    }
+
+    /**
+     * Process fusion account attributes based on command type
+     * Handles registration of unique attributes and refreshing attributes based on command type
+     */
+    public async processFusionAccountAttributes(fusionAccount: FusionAccount): Promise<void> {
+        await this.registerUniqueAttributes(fusionAccount)
+        if (fusionAccount.needsRefresh) {
+            this.mapAttributes(fusionAccount)
+            if (this.commandType === StandardCommand.StdAccountList) {
+                await this.refreshAttributes(fusionAccount)
+            } else {
+                await this.refreshNonUniqueAttributes(fusionAccount)
+            }
+        }
     }
 
     /**
@@ -584,9 +601,30 @@ export class AttributeService {
      */
     private async generateAttribute(definition: AttributeDefinition, fusionAccount: FusionAccount): Promise<void> {
         const { name, refresh } = definition
+        const { fusionIdentityAttribute, fusionDisplayAttribute } = this.schemas
+        const isAccountList = this.commandType === StandardCommand.StdAccountList
+        
         if (fusionAccount.attributes[name] && !refresh) {
             return
         }
+
+        if (isUniqueAttribute(definition) && !isAccountList) {
+            if (name === fusionIdentityAttribute) {
+                definition = {
+                    name,
+                    type: 'uuid',
+                    normalize: false,
+                    spaces: false,
+                    refresh: false,
+                }
+            }
+            
+            if (name === fusionDisplayAttribute) {
+                fusionAccount.attributes[name] = fusionAccount.name!
+                return
+            }
+        }
+
         let value: string | undefined
 
         switch (definition.type) {

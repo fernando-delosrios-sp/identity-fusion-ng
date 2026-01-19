@@ -39,7 +39,7 @@ export class SourceService {
     private _fusionSourceOwner?: OwnerDto
 
     // Account caching
-    public managedAccountsById?: Map<string, Account>
+    public managedAccountsById: Map<string, Account> = new Map()
     public fusionAccountsByNativeIdentity?: Map<string, Account>
 
     // Config settings
@@ -300,9 +300,6 @@ export class SourceService {
         const managedAccount = await this.fetchAccountById(id)
         assert(managedAccount, 'Managed account not found')
 
-        if (!this.managedAccountsById) {
-            this.managedAccountsById = new Map()
-        }
         this.managedAccountsById.set(managedAccount.id!, managedAccount)
     }
 

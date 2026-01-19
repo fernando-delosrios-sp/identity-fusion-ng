@@ -302,6 +302,7 @@
                                             "label": "Default attribute merge from multiple sources",
                                             "type": "radio",
                                             "required": true,
+                                            "helpKey": "Override the default merge behavior for this specific attribute mapping. Choose how values from different sources are combined: First found (use first value), Keep a list of values (create a list), Concatenate different values (concatenate with brackets), or Source name (use value from a specific primary source)",
                                             "options": [
                                                 {
                                                     "label": "First found",

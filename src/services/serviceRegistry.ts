@@ -1,4 +1,4 @@
-import { Context, ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
+import { Context, ConnectorError, ConnectorErrorType, StandardCommand } from '@sailpoint/connector-sdk'
 import { FusionConfig } from '../model/config'
 import { LogService } from './logService'
 import { InMemoryLockService, LockService } from './lockService'
@@ -51,9 +51,10 @@ export class ServiceRegistry {
 
         // Initialize services that depend on others (in dependency order)
         this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)
+        const commandType = context.commandType as StandardCommand | undefined
         this.attributes =
             context.attributesService ??
-            new AttributeService(this.config, this.schemas, this.sources, this.log, this.locks)
+            new AttributeService(this.config, this.schemas, this.sources, this.log, this.locks, commandType)
 
         // Initialize FusionService last (depends on multiple services)
         this.fusion =
