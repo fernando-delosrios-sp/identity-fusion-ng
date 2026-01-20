@@ -25,12 +25,13 @@ import { StateWrapper } from './stateWrapper'
  */
 export class AttributeService {
     private _attributeMappingConfig?: Map<string, AttributeMappingConfig>
-    private _attributeDefinitionConfig: AttributeDefinition[] = []
-    private _stateWrapper?: StateWrapper
+    private attributeDefinitionConfig: AttributeDefinition[] = []
+    private stateWrapper?: StateWrapper
     private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly sourceConfigs: SourceConfig[]
     private readonly maxAttempts?: number
+    private readonly forceAttributeRefresh: boolean
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -48,9 +49,10 @@ export class AttributeService {
         this.attributeMerge = config.attributeMerge
         this.sourceConfigs = config.sources
         this.maxAttempts = config.maxAttempts
+        this.forceAttributeRefresh = config.forceAttributeRefresh
         // Clone attribute definitions into an internal array so we never touch
         // config.attributeDefinitions after construction, and always have a values Set.
-        this._attributeDefinitionConfig =
+        this.attributeDefinitionConfig =
             config.attributeDefinitions?.map((x) => ({
                 ...x,
                 values: new Set<string>(),
@@ -112,7 +114,7 @@ export class AttributeService {
      * Injects lock service for thread-safe counter operations in parallel processing
      */
     public setStateWrapper(state: any): void {
-        this._stateWrapper = new StateWrapper(state, this.locks)
+        this.stateWrapper = new StateWrapper(state, this.locks)
     }
 
     /**
@@ -121,7 +123,7 @@ export class AttributeService {
      */
     public async initializeCounters(): Promise<void> {
         const stateWrapper = this.getStateWrapper()
-        const counterDefinitions = this._attributeDefinitionConfig.filter((def) => def.type === 'counter')
+        const counterDefinitions = this.attributeDefinitionConfig.filter((def) => def.type === 'counter')
 
         if (counterDefinitions.length === 0) {
             return
@@ -187,7 +189,7 @@ export class AttributeService {
                 : this.sourceConfigs.map((sc) => sc.name)
 
         // If refresh is needed, process source attributes in established order
-        if (needsRefresh && sourceAttributeMap.size > 0) {
+        if ((needsRefresh || this.forceAttributeRefresh) && sourceAttributeMap.size > 0) {
             const schemaAttributes = this.schemas.listSchemaAttributeNames()
             // Process each schema attribute
             for (const attribute of schemaAttributes) {
@@ -220,7 +222,7 @@ export class AttributeService {
      * Refresh all attributes for a fusion account
      */
     public async refreshAttributes(fusionAccount: FusionAccount, force: boolean = false): Promise<void> {
-        const allDefinitions = this._attributeDefinitionConfig
+        const allDefinitions = this.attributeDefinitionConfig
         if (force) {
             await this.unregisterUniqueAttributes(fusionAccount)
             allDefinitions.forEach((def) => {
@@ -234,12 +236,12 @@ export class AttributeService {
      * Refresh non-unique attributes for a fusion account
      */
     public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
+        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
         this.log.debug(
             `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
         )
 
-        const allDefinitions = this._attributeDefinitionConfig
+        const allDefinitions = this.attributeDefinitionConfig
         const nonUniqueAttributeDefinitions = allDefinitions.filter((x) => !isUniqueAttribute(x))
 
         await this._refreshAttributes(fusionAccount, nonUniqueAttributeDefinitions)
@@ -251,10 +253,10 @@ export class AttributeService {
      * For existing accounts, shouldSkipAttributeGeneration will skip generation if the attribute already exists.
      */
     public async refreshUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
+        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
         this.log.debug(`Refreshing unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`)
 
-        const allDefinitions = this._attributeDefinitionConfig
+        const allDefinitions = this.attributeDefinitionConfig
         const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
 
         await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
@@ -270,7 +272,7 @@ export class AttributeService {
         const logMessage = operation === 'register' ? 'Registering' : 'Unregistering'
         this.log.debug(`${logMessage} unique attributes for account: ${fusionAccount.nativeIdentity}`)
 
-        const uniqueDefinitions = this._attributeDefinitionConfig.filter(
+        const uniqueDefinitions = this.attributeDefinitionConfig.filter(
             (def) => def.type === 'unique' || def.type === 'uuid'
         )
 
@@ -362,12 +364,12 @@ export class AttributeService {
     }
 
     private getAttributeDefinition(name: string): AttributeDefinition | undefined {
-        return this._attributeDefinitionConfig.find((d) => d.name === name)
+        return this.attributeDefinitionConfig.find((d) => d.name === name)
     }
 
     private getStateWrapper(): StateWrapper {
-        assert(this._stateWrapper, 'State wrapper is not set')
-        return this._stateWrapper!
+        assert(this.stateWrapper, 'State wrapper is not set')
+        return this.stateWrapper!
     }
 
     // ------------------------------------------------------------------------
@@ -634,6 +636,11 @@ export class AttributeService {
         refresh: boolean | undefined,
         fusionAccount: FusionAccount
     ): boolean {
+        // If forceAttributeRefresh is enabled, never skip generation
+        if (this.forceAttributeRefresh) {
+            return false
+        }
+
         // Check both current attributes and previous attributes to handle cases where
         // attributes exist but haven't been copied to current yet (edge case)
         // This prevents counter attributes from being regenerated for existing accounts

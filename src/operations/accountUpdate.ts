@@ -33,27 +33,19 @@ export const accountUpdate = async (
             assert(change.attribute, 'Change attribute is required')
 
             if (change.attribute === 'actions') {
-                const actions = [].concat(change.value ?? []).flat()
-                assert(actions.length > 0, 'Actions array cannot be empty')
-                log.debug(`Processing ${actions.length} action(s) with operation: ${change.op}`)
-
-                for (const action of actions) {
-                    assert(action, 'Action value is required')
-                    log.debug(`Processing action: ${action} with operation: ${change.op}`)
-
-                    switch (action) {
-                        case 'report':
-                            await reportAction(fusionAccount, change.op)
-                            break
-                        case 'fusion':
-                            await fusionAction(fusionAccount, change.op)
-                            break
-                        case 'correlate':
-                            await correlateAction(fusionAccount, change.op)
-                            break
-                        default:
-                            log.crash(`Unsupported action: ${action}`)
-                    }
+                switch (change.value) {
+                    case 'report':
+                        await reportAction(fusionAccount, change.op)
+                        break
+                    case 'fusion':
+                        await fusionAction(fusionAccount, change.op)
+                        break
+                    case 'correlated':
+                        await correlateAction(fusionAccount, change.op)
+                        // Status/action will be updated after correlation promises resolve in getISCAccount
+                        break
+                    default:
+                        log.crash(`Unsupported action: ${change.value}`)
                 }
             } else {
                 log.crash(`Unsupported entitlement change: ${change.attribute}`)

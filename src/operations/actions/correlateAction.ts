@@ -3,8 +3,8 @@ import { FusionAccount } from '../../model/account'
 import { ServiceRegistry } from '../../services/serviceRegistry'
 
 /**
- * Placeholder function for correlate action
- * Correlates missing source accounts
+ * Correlate action handler
+ * Correlates missing source accounts when the "correlate" action is added
  */
 export const correlateAction = async (fusionAccount: FusionAccount, op: AttributeChangeOp): Promise<void> => {
     const serviceRegistry = ServiceRegistry.getCurrent()
@@ -12,8 +12,18 @@ export const correlateAction = async (fusionAccount: FusionAccount, op: Attribut
 
     log.debug(`Correlate action called for account ${fusionAccount.name} with operation ${op}`)
 
-    // TODO: Implement correlate action logic
     if (op === AttributeChangeOp.Add) {
-        await identities.correlateAccounts(fusionAccount)
+        // Trigger correlation for all missing accounts
+        if (fusionAccount.missingAccountIds.length > 0) {
+            log.info(
+                `Triggering correlation for ${fusionAccount.missingAccountIds.length} missing account(s) for fusion account ${fusionAccount.name}`
+            )
+            await identities.correlateAccounts(fusionAccount)
+        } else {
+            log.debug(`No missing accounts to correlate for fusion account ${fusionAccount.name}`)
+        }
+    } else if (op === AttributeChangeOp.Remove) {
+        // Removing the correlate action doesn't undo correlations, just removes the action
+        log.debug(`Correlate action removed for account ${fusionAccount.name}`)
     }
 }

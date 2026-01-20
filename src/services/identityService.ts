@@ -141,13 +141,32 @@ export class IdentityService {
     // ------------------------------------------------------------------------
 
     /**
-     * Correlate an account to an identity
+     * Correlate missing accounts to an identity
+     * Processes all missing accounts asynchronously - promises are tracked and resolved later
+     * The correlation happens in the background and getISCAccount will resolve the promises
      */
     public async correlateAccounts(fusionAccount: FusionAccount): Promise<boolean> {
         const { missingAccountIds, identityId } = fusionAccount
         const { accountsApi } = this.client
 
-        missingAccountIds.forEach((accountId) => {
+        if (!identityId) {
+            this.log.warn(`Cannot correlate accounts for fusion account ${fusionAccount.name}: no identity ID`)
+            return false
+        }
+
+        if (missingAccountIds.length === 0) {
+            return true
+        }
+
+        this.log.debug(
+            `Starting correlation for ${missingAccountIds.length} missing account(s) for fusion account ${fusionAccount.name}`
+        )
+
+        // Create correlation promises for all missing accounts (fire-and-forget)
+        // Store a copy of missing account IDs since we'll be modifying the set during correlation
+        const accountIdsToCorrelate = [...missingAccountIds]
+
+        accountIdsToCorrelate.forEach((accountId) => {
             const requestParameters: AccountsApiUpdateAccountRequest = {
                 id: accountId,
                 requestBody: [
@@ -159,15 +178,25 @@ export class IdentityService {
                 ],
             }
 
-            const updateAccount = async () => {
-                return await accountsApi.updateAccount(requestParameters)
-            }
+            // Use client.execute to ensure proper queue handling if enabled
+            const correlationPromise = this.client
+                .execute(() => accountsApi.updateAccount(requestParameters))
+                .then(() => {
+                    // On success, mark account as correlated and remove from missing list
+                    // This also adds history entry
+                    fusionAccount.setCorrelatedAccount(accountId)
+                    this.log.debug(`Successfully correlated account ${accountId} to identity ${identityId}`)
+                })
+                .catch((error) => {
+                    this.log.error(`Failed to correlate account ${accountId}: ${error}`)
+                    // Don't re-throw - we want Promise.allSettled to handle it gracefully
+                })
 
-            // Fire-and-track only: correlation outcome shouldn't affect current run state
-            const response = this.client.execute(updateAccount)
-            fusionAccount.addCorrelationPromise(accountId, response)
+            // Track the promise - it will be resolved in getISCAccount via resolvePendingOperations
+            fusionAccount.addCorrelationPromise(accountId, correlationPromise)
         })
 
+        // Return immediately - correlation happens asynchronously
         return true
     }
 

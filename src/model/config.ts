@@ -101,10 +101,11 @@ export interface ProcessingControlSection {
     deleteEmpty: boolean
     correlateOnAggregation: boolean
     resetProcessingFlag: boolean
+    forceAttributeRefresh: boolean
 }
 
 // Source Settings Menu
-export interface SourceSettingsMenu extends ScopeSection, SourcesSection, ProcessingControlSection {}
+export interface SourceSettingsMenu extends ScopeSection, SourcesSection, ProcessingControlSection { }
 
 // ============================================================================
 // Attribute Mapping Settings Menu
@@ -157,7 +158,7 @@ export interface ReviewSettingsSection {
 }
 
 // Fusion Settings Menu
-export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSettingsSection {}
+export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSettingsSection { }
 
 // ============================================================================
 // Advanced Settings Menu
@@ -250,8 +251,8 @@ export interface ProxySettingsSection {
 // Advanced Settings Menu
 export interface AdvancedSettingsMenu
     extends DeveloperSettingsSection,
-        AdvancedConnectionSettingsSection,
-        ProxySettingsSection {}
+    AdvancedConnectionSettingsSection,
+    ProxySettingsSection { }
 
 // ============================================================================
 // Internal/Computed fields
@@ -287,10 +288,10 @@ export interface InternalConfig {
 
 export interface FusionConfig
     extends BaseConfig,
-        ConnectionSettingsMenu,
-        SourceSettingsMenu,
-        AttributeMappingSettingsMenu,
-        AttributeDefinitionSettingsMenu,
-        FusionSettingsMenu,
-        AdvancedSettingsMenu,
-        InternalConfig {}
+    ConnectionSettingsMenu,
+    SourceSettingsMenu,
+    AttributeMappingSettingsMenu,
+    AttributeDefinitionSettingsMenu,
+    FusionSettingsMenu,
+    AdvancedSettingsMenu,
+    InternalConfig { }

@@ -119,6 +119,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.correlateOnAggregation = config.correlateOnAggregation ?? false
     config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
+    config.forceAttributeRefresh = config.forceAttributeRefresh ?? false
 
     // ============================================================================
     // Attribute Definition Settings defaults

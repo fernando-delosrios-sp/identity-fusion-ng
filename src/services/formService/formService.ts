@@ -34,9 +34,9 @@ import { createFusionDecision } from './formProcessor'
  * Handles creation, processing, and cleanup of fusion forms for deduplication review.
  */
 export class FormService {
-    private _formsToDelete: string[] = []
-    private _fusionIdentityDecisions?: FusionDecision[]
-    private _fusionAssignmentDecisionMap: Map<string, FusionDecision> = new Map()
+    private formsToDelete: string[] = []
+    private fusionIdentityDecisions?: FusionDecision[]
+    private fusionAssignmentDecisionMap: Map<string, FusionDecision> = new Map()
     private readonly fusionFormNamePattern: string
     private readonly fusionFormExpirationDays: number
     private readonly fusionFormAttributes?: string[]
@@ -69,8 +69,8 @@ export class FormService {
         this.log.debug('Fetching form data')
         assert(this.fusionFormNamePattern, 'Fusion form name pattern is required')
 
-        this._fusionIdentityDecisions = []
-        this._fusionAssignmentDecisionMap = new Map()
+        this.fusionIdentityDecisions = []
+        this.fusionAssignmentDecisionMap = new Map()
 
         const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
         this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
@@ -93,7 +93,7 @@ export class FormService {
             }
         }
 
-        const fusionDecisionsCount = this._fusionIdentityDecisions?.length ?? 0
+        const fusionDecisionsCount = this.fusionIdentityDecisions?.length ?? 0
         this.log.debug(`Form data fetch completed - ${fusionDecisionsCount} fusion decision(s)`)
     }
 
@@ -106,14 +106,14 @@ export class FormService {
      * Clean up completed and cancelled forms
      */
     public async cleanUpForms(): Promise<void> {
-        if (this._formsToDelete.length === 0) {
+        if (this.formsToDelete.length === 0) {
             this.log.debug('No forms to clean up')
             return
         }
 
-        this.log.info(`Cleaning up ${this._formsToDelete.length} form(s)`)
-        await Promise.all(this._formsToDelete.map((formId) => this.deleteForm(formId)))
-        this._formsToDelete = []
+        this.log.info(`Cleaning up ${this.formsToDelete.length} form(s)`)
+        await Promise.all(this.formsToDelete.map((formId) => this.deleteForm(formId)))
+        this.formsToDelete = []
         this.log.debug('Form cleanup completed')
     }
 
@@ -387,25 +387,25 @@ export class FormService {
      * Get all fusion identity decisions
      */
     public getIdentityFusionDecisions(): FusionDecision[] {
-        assert(this._fusionIdentityDecisions, 'Fusion identity decisions not fetched')
-        return this._fusionIdentityDecisions
+        assert(this.fusionIdentityDecisions, 'Fusion identity decisions not fetched')
+        return this.fusionIdentityDecisions
     }
 
     /**
      * Get fusion decision for a specific identity UID
      */
     public getIdentityFusionDecision(identityUid: string): FusionDecision | undefined {
-        if (!this._fusionIdentityDecisions) {
+        if (!this.fusionIdentityDecisions) {
             return undefined
         }
-        return this._fusionIdentityDecisions.find((decision) => decision.account.id === identityUid)
+        return this.fusionIdentityDecisions.find((decision) => decision.account.id === identityUid)
     }
 
     /**
      * Get assignment fusion decision for an identity ID
      */
     public getAssignmentFusionDecision(identityId: string): FusionDecision | undefined {
-        return this._fusionAssignmentDecisionMap.get(identityId)
+        return this.fusionAssignmentDecisionMap.get(identityId)
     }
 
     /**
@@ -467,8 +467,8 @@ export class FormService {
      * Process fusion form instances and extract decisions
      */
     private processFusionFormInstances(formInstances: FormInstanceResponseV2025[]): void {
-        assert(this._fusionIdentityDecisions, 'Fusion identity decisions array is not initialized')
-        assert(this._fusionAssignmentDecisionMap, 'Fusion assignment decision map is not initialized')
+        assert(this.fusionIdentityDecisions, 'Fusion identity decisions array is not initialized')
+        assert(this.fusionAssignmentDecisionMap, 'Fusion assignment decision map is not initialized')
         assert(formInstances, 'Form instances array is required')
 
         const processingResult = this.analyzeFormInstances(formInstances)
@@ -629,11 +629,11 @@ export class FormService {
                 continue
             }
 
-            this._fusionIdentityDecisions!.push(decision)
+            this.fusionIdentityDecisions!.push(decision)
 
             // Populate assignment decision map keyed by identityId (the identity the account is assigned to)
             if (decision.identityId && decision.finished) {
-                this._fusionAssignmentDecisionMap!.set(decision.identityId, decision)
+                this.fusionAssignmentDecisionMap!.set(decision.identityId, decision)
             }
 
             decisionsAdded++
@@ -650,7 +650,7 @@ export class FormService {
         const decisionType = decision.newIdentity ? 'new identity' : `link to ${decision.identityId}`
         this.log.debug(
             `Processed fusion decision for account ${decision.account.id}, reviewer ${decision.submitter.id}, ` +
-                `decision: ${decisionType}`
+            `decision: ${decisionType}`
         )
     }
 
@@ -687,8 +687,8 @@ export class FormService {
      */
     private addFormToDelete(formDefinitionId: string): void {
         // Avoid double-queueing the same definition id (processFusionFormInstances can hit multiple paths)
-        if (!this._formsToDelete.includes(formDefinitionId)) {
-            this._formsToDelete.push(formDefinitionId)
+        if (!this.formsToDelete.includes(formDefinitionId)) {
+            this.formsToDelete.push(formDefinitionId)
         }
     }
 
