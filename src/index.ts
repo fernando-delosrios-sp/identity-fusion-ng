@@ -69,8 +69,8 @@ export const connector = async () => {
             runMode === 'proxy'
                 ? undefined
                 : setInterval(() => {
-                      res.keepAlive()
-                  }, config.processingWait)
+                    res.keepAlive()
+                }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
@@ -162,8 +162,8 @@ export const connector = async () => {
             runMode === 'proxy'
                 ? undefined
                 : setInterval(() => {
-                      res.keepAlive()
-                  }, config.processingWait)
+                    res.keepAlive()
+                }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)

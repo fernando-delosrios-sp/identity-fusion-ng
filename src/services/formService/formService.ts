@@ -75,18 +75,31 @@ export class FormService {
         const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
         this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
 
-        await Promise.all(
+        // Fetch all instances in parallel for better performance
+        const formInstancesResults = await Promise.all(
             forms.map(async (form) => {
                 this.log.debug(`Fetching instances for form definition: ${form.id} (${form.name || 'unknown'})`)
                 const instances = await this.fetchFormInstancesByDefinitionId(form.id)
                 this.log.debug(`Fetched ${instances.length} instance(s) for form definition: ${form.id}`)
-
-                this.processFusionFormInstances(instances)
+                return instances
             })
         )
 
+        // Process all instances sequentially to avoid race conditions when modifying shared state
+        // (fetching was done in parallel above, processing is fast so sequential is fine)
+        for (const instances of formInstancesResults) {
+            if (instances.length > 0) {
+                this.processFusionFormInstances(instances)
+            }
+        }
+
         const fusionDecisionsCount = this._fusionIdentityDecisions?.length ?? 0
         this.log.debug(`Form data fetch completed - ${fusionDecisionsCount} fusion decision(s)`)
+    }
+
+    public async deleteExistingForms(): Promise<void> {
+        const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
+        await Promise.all(forms.map((form) => this.deleteForm(form.id!)))
     }
 
     /**
@@ -113,28 +126,64 @@ export class FormService {
     ): Promise<void> {
         assert(fusionAccount, 'Fusion account is required')
 
-        if (!reviewers || reviewers.size === 0) {
-            this.log.warn(`No reviewers found for account ${fusionAccount.name}, skipping form creation`)
+        if (!this.hasValidReviewers(reviewers, fusionAccount.name || 'Unknown')) {
             return
         }
 
-        this.log.debug(`Building fusion form for account ${fusionAccount.name} with ${reviewers.size} reviewer(s)`)
+        const { candidates, formDefinition, formInput, expire, fusionSourceId } =
+            await this.prepareFormCreationData(fusionAccount, reviewers!.size)
+
+        const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
+        const existingRecipientIds = this.extractExistingRecipientIds(existingInstances)
+
+        this.associateExistingInstancesWithReviewers(existingInstances, reviewers!)
+
+        await this.createFormInstancesForReviewers(
+            reviewers!,
+            formDefinition,
+            formInput,
+            fusionSourceId,
+            expire,
+            fusionAccount,
+            candidates,
+            existingRecipientIds
+        )
+    }
+
+    /**
+     * Validate that reviewers exist and are not empty
+     */
+    private hasValidReviewers(reviewers: Set<FusionAccount> | undefined, accountName: string): boolean {
+        if (!reviewers || reviewers.size === 0) {
+            this.log.warn(`No reviewers found for account ${accountName}, skipping form creation`)
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Prepare all data needed for form creation
+     */
+    private async prepareFormCreationData(
+        fusionAccount: FusionAccount,
+        reviewerCount: number
+    ): Promise<{
+        candidates: Candidate[]
+        formName: string
+        formDefinition: FormDefinitionResponseV2025
+        formInput: { [key: string]: any }
+        expire: string
+        fusionSourceId: string
+    }> {
+        this.log.debug(`Building fusion form for account ${fusionAccount.name} with ${reviewerCount} reviewer(s)`)
+
         const candidates = buildCandidateList(fusionAccount)
         assert(candidates, 'Failed to build candidate list')
 
         const formName = buildFormName(fusionAccount, this.fusionFormNamePattern)
         assert(formName, 'Form name is required')
 
-        // Check if form definition already exists, if not create it
-        let formDefinition = await this.findFormDefinitionByName(formName)
-        if (!formDefinition) {
-            this.log.debug(`Form definition not found, creating new one: ${formName}`)
-            formDefinition = await this.buildFusionFormDefinition(formName, fusionAccount, candidates)
-            assert(formDefinition, 'Failed to create form definition')
-            assert(formDefinition.id, 'Form definition ID is required')
-        } else {
-            this.log.debug(`Using existing form definition: ${formDefinition.id}`)
-        }
+        const formDefinition = await this.getOrCreateFormDefinition(formName, fusionAccount, candidates)
 
         const formInput = buildFormInput(fusionAccount, candidates, this.fusionFormAttributes)
         assert(formInput, 'Form input is required')
@@ -145,90 +194,192 @@ export class FormService {
         const { fusionSourceId } = this.sources
         assert(fusionSourceId, 'Fusion source ID is required')
 
-        // Get existing form instances for this definition
-        const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
-        const existingRecipientIds = new Set(
-            existingInstances.flatMap((instance) => instance.recipients?.map((r) => r.id).filter(Boolean) || [])
-        )
+        return { candidates, formName, formDefinition, formInput, expire, fusionSourceId }
+    }
 
-        // Add existing form instances to reviewers' reviews
-        for (const instance of existingInstances) {
-            if (instance.recipients && instance.standAloneFormUrl) {
+    /**
+     * Get existing form definition or create a new one
+     */
+    private async getOrCreateFormDefinition(
+        formName: string,
+        fusionAccount: FusionAccount,
+        candidates: Candidate[]
+    ): Promise<FormDefinitionResponseV2025> {
+        let formDefinition = await this.findFormDefinitionByName(formName)
+        if (!formDefinition) {
+            this.log.debug(`Form definition not found, creating new one: ${formName}`)
+            formDefinition = await this.buildFusionFormDefinition(formName, fusionAccount, candidates)
+            assert(formDefinition, 'Failed to create form definition')
+            assert(formDefinition.id, 'Form definition ID is required')
+        } else {
+            this.log.debug(`Using existing form definition: ${formDefinition.id}`)
+        }
+        return formDefinition
+    }
+
+    /**
+     * Extract recipient IDs from existing form instances
+     */
+    private extractExistingRecipientIds(instances: FormInstanceResponseV2025[]): Set<string> {
+        const recipientIds: string[] = []
+        for (const instance of instances) {
+            if (instance.recipients) {
                 for (const recipient of instance.recipients) {
                     if (recipient.id) {
-                        const reviewer = Array.from(reviewers).find((r) => r.identityId === recipient.id)
-                        if (reviewer && instance.standAloneFormUrl) {
-                            reviewer.addFusionReview(instance.standAloneFormUrl)
-                            this.log.debug(
-                                `Added existing form instance ${instance.id} to reviewer ${recipient.id} reviews`
-                            )
-                        }
+                        recipientIds.push(recipient.id)
                     }
                 }
             }
         }
+        return new Set(recipientIds)
+    }
 
-        // Create one form instance per reviewer
+    /**
+     * Associate existing form instances with their reviewers
+     */
+    private associateExistingInstancesWithReviewers(
+        existingInstances: FormInstanceResponseV2025[],
+        reviewers: Set<FusionAccount>
+    ): void {
+        for (const instance of existingInstances) {
+            if (!instance.recipients || !instance.standAloneFormUrl) {
+                continue
+            }
+
+            for (const recipient of instance.recipients) {
+                if (!recipient.id) {
+                    continue
+                }
+
+                const reviewer = Array.from(reviewers).find((r) => r.identityId === recipient.id)
+                if (reviewer) {
+                    reviewer.addFusionReview(instance.standAloneFormUrl)
+                    this.log.debug(
+                        `Added existing form instance ${instance.id} to reviewer ${recipient.id} reviews`
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Create form instances for each reviewer
+     */
+    private async createFormInstancesForReviewers(
+        reviewers: Set<FusionAccount>,
+        formDefinition: FormDefinitionResponseV2025,
+        formInput: { [key: string]: any },
+        fusionSourceId: string,
+        expire: string,
+        fusionAccount: FusionAccount,
+        candidates: Candidate[],
+        existingRecipientIds: Set<string>
+    ): Promise<void> {
         for (const reviewer of reviewers) {
-            let hasPreviousInstance = false
             const reviewerId = reviewer.identityId
             if (!reviewerId) {
                 this.log.warn(`Reviewer ${reviewer.name} has no identity ID, skipping`)
                 continue
             }
 
-            // Check if form instance already exists for this reviewer
-            if (existingRecipientIds.has(reviewerId)) {
+            const hasPreviousInstance = existingRecipientIds.has(reviewerId)
+            if (hasPreviousInstance) {
                 this.log.debug(`Form instance already exists for reviewer ${reviewerId}`)
-                hasPreviousInstance = true
             }
 
-            const reviewPromise = (async (): Promise<string | undefined> => {
-                const formInstance = await this.createFormInstance(
-                    formDefinition.id!,
-                    formInput,
-                    [reviewerId],
-                    fusionSourceId,
-                    expire
-                )
-                assert(formInstance, 'Failed to create form instance')
-
-                if (formInstance.id) {
-                    this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
-
-                    if (this.messaging) {
-                        if (hasPreviousInstance) {
-                            this.log.debug(
-                                `Previous instance existed for reviewer ${reviewerId}; still sending review email for new instance ${formInstance.id}`
-                            )
-                        }
-                        try {
-                            await this.messaging.sendFusionEmail(formInstance, {
-                                accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
-                                accountSource: fusionAccount.sourceName,
-                                accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
-                                accountEmail: fusionAccount.email,
-                                accountAttributes: fusionAccount.attributes as any,
-                                candidates: candidates.map((c) => ({
-                                    id: c.id,
-                                    name: c.name,
-                                    attributes: c.attributes,
-                                    scores: c.scores,
-                                })),
-                            })
-                            this.log.debug(`Email notification sent for form ${formInstance.id}`)
-                        } catch (error) {
-                            this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
-                        }
-                    }
-
-                    return formInstance.standAloneFormUrl ?? undefined
-                }
-
-                return undefined
-            })()
+            const reviewPromise = this.createReviewPromise(
+                formDefinition.id!,
+                formInput,
+                reviewerId,
+                fusionSourceId,
+                expire,
+                fusionAccount,
+                candidates,
+                hasPreviousInstance
+            )
 
             reviewer.addReviewPromise(reviewPromise)
+        }
+    }
+
+    /**
+     * Create a promise that handles form instance creation and email notification
+     */
+    private createReviewPromise(
+        formDefinitionId: string,
+        formInput: { [key: string]: any },
+        reviewerId: string,
+        fusionSourceId: string,
+        expire: string,
+        fusionAccount: FusionAccount,
+        candidates: Candidate[],
+        hasPreviousInstance: boolean
+    ): Promise<string | undefined> {
+        return (async (): Promise<string | undefined> => {
+            const formInstance = await this.createFormInstance(
+                formDefinitionId,
+                formInput,
+                [reviewerId],
+                fusionSourceId,
+                expire
+            )
+            assert(formInstance, 'Failed to create form instance')
+
+            if (!formInstance.id) {
+                return undefined
+            }
+
+            this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
+
+            await this.sendFormInstanceNotificationIfEnabled(
+                formInstance,
+                fusionAccount,
+                candidates,
+                reviewerId,
+                hasPreviousInstance
+            )
+
+            return formInstance.standAloneFormUrl ?? undefined
+        })()
+    }
+
+    /**
+     * Send email notification for form instance if messaging is enabled
+     */
+    private async sendFormInstanceNotificationIfEnabled(
+        formInstance: FormInstanceResponseV2025,
+        fusionAccount: FusionAccount,
+        candidates: Candidate[],
+        reviewerId: string,
+        hasPreviousInstance: boolean
+    ): Promise<void> {
+        if (!this.messaging) {
+            return
+        }
+
+        if (hasPreviousInstance) {
+            this.log.debug(
+                `Previous instance existed for reviewer ${reviewerId}; still sending review email for new instance ${formInstance.id}`
+            )
+        }
+
+        try {
+            await this.messaging.sendFusionEmail(formInstance, {
+                accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
+                accountSource: fusionAccount.sourceName,
+                accountId: fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined,
+                accountEmail: fusionAccount.email,
+                accountAttributes: fusionAccount.attributes as any,
+                candidates: candidates.map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    attributes: c.attributes,
+                    scores: c.scores,
+                })),
+            })
+            this.log.debug(`Email notification sent for form ${formInstance.id}`)
+        } catch (error) {
+            this.log.warn(`Failed to send email notification for form ${formInstance.id}: ${error}`)
         }
     }
 
@@ -320,111 +471,187 @@ export class FormService {
         assert(this._fusionAssignmentDecisionMap, 'Fusion assignment decision map is not initialized')
         assert(formInstances, 'Form instances array is required')
 
+        const processingResult = this.analyzeFormInstances(formInstances)
+        const accountInfoOverride = this.extractAccountInfoOverride(processingResult.accountId, processingResult.shouldDeleteForm)
+
+        const decisionsAdded = this.createDecisionsFromInstances(
+            processingResult.instancesToProcess,
+            accountInfoOverride
+        )
+
+        if (processingResult.shouldDeleteForm && processingResult.formDefinitionId) {
+            this.addFormToDelete(processingResult.formDefinitionId)
+        }
+
+        if (decisionsAdded > 0) {
+            this.log.debug(
+                `Added ${decisionsAdded} fusion decision(s) from ${processingResult.processedCount} processed instance(s)`
+            )
+        }
+    }
+
+    /**
+     * Analyze form instances to determine which to process and extract metadata
+     */
+    private analyzeFormInstances(formInstances: FormInstanceResponseV2025[]): {
+        instancesToProcess: FormInstanceResponseV2025[]
+        shouldDeleteForm: boolean
+        formDefinitionId: string | undefined
+        accountId: string | undefined
+        processedCount: number
+    } {
         let shouldDeleteForm = true
         let processedCount = 0
         let formDefinitionId: string | undefined = undefined
         let accountId: string | undefined = undefined
         const instancesToProcess: FormInstanceResponseV2025[] = []
 
-        // First pass: determine which instances to process and get account ID
-        instances: for (const instance of formInstances) {
+        for (const instance of formInstances) {
             assert(instance, 'Form instance is required')
             assert(instance.state, 'Form instance state is required')
 
-            if (!formDefinitionId) {
-                formDefinitionId = instance.formDefinitionId
-            }
-            if (!accountId) {
-                // Try flat structure first (as sent in createFormInstance)
-                if (typeof instance.formInput === 'object' && instance.formInput !== null) {
-                    const formInput = instance.formInput as any
-                    if (typeof formInput.account === 'string') {
-                        accountId = formInput.account
-                    } else {
-                        // Try dictionary structure (formInput is an object with input objects)
-                        const formInputs = formInput as Record<string, any> | undefined
-                        const accountInput = formInputs ? Object.values(formInputs).find(
-                            (x: any) => x?.id === 'account' && (x.value || x.description)
-                        ) : undefined
-                        accountId = accountInput?.value || accountInput?.description
-                    }
-                }
-            }
+            formDefinitionId = formDefinitionId || instance.formDefinitionId
+            accountId = accountId || this.extractAccountIdFromInstance(instance)
 
-            switch (instance.state) {
-                case 'COMPLETED':
-                    this.log.debug(`Processing completed form instance: ${instance.id}`)
-                    instancesToProcess.push(instance)
-                    shouldDeleteForm = true
-                    processedCount++
-                    break instances
-                case 'IN_PROGRESS':
-                    this.log.debug(`Processing completed form instance: ${instance.id}`)
-                    instancesToProcess.push(instance)
-                    shouldDeleteForm = true
-                    processedCount++
-                    break instances
-                case 'CANCELLED':
-                    this.log.info(`Form instance ${instance.id} was cancelled`)
-                    processedCount++
-                    break
-                default:
-                    // Pending / in-progress instance: capture as an unfinished decision so
-                    // we can populate reviewer context (reviews) without affecting fusion.
-                    instancesToProcess.push(instance)
-                    shouldDeleteForm = false
-                    this.log.debug(`Form instance ${instance.id} has state: ${instance.state}, not deleting form`)
-                    break
+            const stateResult = this.processInstanceState(instance, instancesToProcess)
+            shouldDeleteForm = stateResult.shouldDeleteForm
+            processedCount += stateResult.processedCount
+
+            if (stateResult.shouldBreakLoop) {
+                break
             }
         }
 
-        // Extract account info from managedAccountsById before deleting it
-        let accountInfoOverride: { id: string; name: string; sourceName: string } | undefined
-        if (accountId) {
-            const managedAccountsMap = this.sources.managedAccountsById
-            assert(managedAccountsMap, 'Managed accounts have not been loaded')
-            const account = managedAccountsMap.get(accountId)
-            if (account) {
-                accountInfoOverride = {
-                    id: accountId,
-                    name: account.name || accountId,
-                    sourceName: account.sourceName || '',
-                }
-                // Delete after extracting info
-                managedAccountsMap.delete(accountId)
-            }
+        return {
+            instancesToProcess,
+            shouldDeleteForm,
+            formDefinitionId,
+            accountId,
+            processedCount,
+        }
+    }
+
+    /**
+     * Extract account ID from form instance input
+     */
+    private extractAccountIdFromInstance(instance: FormInstanceResponseV2025): string | undefined {
+        if (typeof instance.formInput !== 'object' || instance.formInput === null) {
+            return undefined
         }
 
-        // Second pass: create decisions with account info from managedAccountsById
+        const formInput = instance.formInput as any
+
+        // Try flat structure first (as sent in createFormInstance)
+        if (typeof formInput.account === 'string') {
+            return formInput.account
+        }
+
+        // Try dictionary structure (formInput is an object with input objects)
+        const formInputs = formInput as Record<string, any> | undefined
+        const accountInput = formInputs
+            ? Object.values(formInputs).find((x: any) => x?.id === 'account' && (x.value || x.description))
+            : undefined
+
+        return accountInput?.value || accountInput?.description
+    }
+
+    /**
+     * Process instance state and determine if it should be included
+     */
+    private processInstanceState(
+        instance: FormInstanceResponseV2025,
+        instancesToProcess: FormInstanceResponseV2025[]
+    ): { shouldDeleteForm: boolean; processedCount: number; shouldBreakLoop: boolean } {
+        switch (instance.state) {
+            case 'COMPLETED':
+            case 'IN_PROGRESS':
+                this.log.debug(`Processing completed form instance: ${instance.id}`)
+                instancesToProcess.push(instance)
+                return { shouldDeleteForm: true, processedCount: 1, shouldBreakLoop: true }
+
+            case 'CANCELLED':
+                this.log.info(`Form instance ${instance.id} was cancelled`)
+                return { shouldDeleteForm: true, processedCount: 1, shouldBreakLoop: false }
+
+            default:
+                // Pending / in-progress instance: capture as an unfinished decision so
+                // we can populate reviewer context (reviews) without affecting fusion.
+                instancesToProcess.push(instance)
+                this.log.debug(`Form instance ${instance.id} has state: ${instance.state}, not deleting form`)
+                return { shouldDeleteForm: false, processedCount: 0, shouldBreakLoop: false }
+        }
+    }
+
+    /**
+     * Extract account info override from managed accounts before deletion
+     */
+    private extractAccountInfoOverride(
+        accountId: string | undefined, keepAccount: boolean
+    ): { id: string; name: string; sourceName: string } | undefined {
+        if (!accountId) {
+            return undefined
+        }
+
+        const managedAccountsMap = this.sources.managedAccountsById
+        assert(managedAccountsMap, 'Managed accounts have not been loaded')
+
+        const account = managedAccountsMap.get(accountId)
+        if (!account) {
+            return undefined
+        }
+
+        // Delete after extracting info
+        if (!keepAccount) {
+            managedAccountsMap.delete(accountId)
+        }
+
+        return {
+            id: accountId,
+            name: account.name || accountId,
+            sourceName: account.sourceName || '',
+        }
+    }
+
+    /**
+     * Create fusion decisions from processed instances
+     * @returns The number of decisions successfully created
+     */
+    private createDecisionsFromInstances(
+        instancesToProcess: FormInstanceResponseV2025[],
+        accountInfoOverride: { id: string; name: string; sourceName: string } | undefined
+    ): number {
         let decisionsAdded = 0
+
         for (const instance of instancesToProcess) {
             const decision = createFusionDecision(instance, this.identities, accountInfoOverride)
-            if (decision) {
-                this._fusionIdentityDecisions.push(decision)
-
-                // Populate assignment decision map keyed by identityId (the identity the account is assigned to)
-                if (decision.identityId && decision.finished) {
-                    this._fusionAssignmentDecisionMap.set(decision.identityId, decision)
-                }
-
-                decisionsAdded++
-                this.log.debug(
-                    `Processed fusion decision for account ${decision.account.id}, reviewer ${decision.submitter.id}, ` +
-                        `decision: ${decision.newIdentity ? 'new identity' : `link to ${decision.identityId}`}`
-                )
-            } else {
+            if (!decision) {
                 this.log.warn(`Failed to create fusion decision for form instance: ${instance.id}`)
+                continue
             }
+
+            this._fusionIdentityDecisions!.push(decision)
+
+            // Populate assignment decision map keyed by identityId (the identity the account is assigned to)
+            if (decision.identityId && decision.finished) {
+                this._fusionAssignmentDecisionMap!.set(decision.identityId, decision)
+            }
+
+            decisionsAdded++
+            this.logFusionDecision(decision)
         }
 
-        if (decisionsAdded > 0) {
-            this.log.debug(`Added ${decisionsAdded} fusion decision(s) from ${processedCount} processed instance(s)`)
-        }
+        return decisionsAdded
+    }
 
-        // Mark form for deletion if needed
-        if (shouldDeleteForm && formDefinitionId) {
-            this.addFormToDelete(formDefinitionId)
-        }
+    /**
+     * Log fusion decision details
+     */
+    private logFusionDecision(decision: FusionDecision): void {
+        const decisionType = decision.newIdentity ? 'new identity' : `link to ${decision.identityId}`
+        this.log.debug(
+            `Processed fusion decision for account ${decision.account.id}, reviewer ${decision.submitter.id}, ` +
+                `decision: ${decisionType}`
+        )
     }
 
     /**

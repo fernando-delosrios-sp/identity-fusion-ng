@@ -29,8 +29,8 @@
         "requestsPerSecond": 10,
         "maxConcurrentRequests": 10,
         "taskResultRetries": 5,
-        "taskResultWait": 1000,
-        "processingWait": 60000,
+        "taskResultWait": 1,
+        "processingWait": 60,
         "retryDelay": 1000,
         "batchSize": 250,
         "externalLoggingLevel": "info",
@@ -194,11 +194,11 @@
                         },
                         {
                             "key": "taskResultWait",
-                            "label": "Aggregation task result wait time (milliseconds)",
+                            "label": "Aggregation task result wait time (seconds)",
                             "type": "number",
                             "required": false,
                             "min": "0",
-                            "helpKey": "Wait time between aggregation task status checks in milliseconds (applies to all sources with force aggregation enabled)"
+                            "helpKey": "Wait time between aggregation task status checks in seconds (applies to all sources with force aggregation enabled)"
                         }
                     ]
                 },
@@ -727,11 +727,11 @@
                         },
                         {
                             "key": "processingWait",
-                            "label": "Processing wait time (milliseconds)",
+                            "label": "Processing wait time (seconds)",
                             "type": "number",
                             "required": true,
                             "min": "0",
-                            "helpKey": "Wait time for processing operations (reserved for future scheduling features)"
+                            "helpKey": "Wait time for processing operations in seconds (reserved for future scheduling features)"
                         },
                         {
                             "key": "retryDelay",
@@ -739,7 +739,7 @@
                             "type": "number",
                             "required": true,
                             "min": "0",
-                            "helpKey": "Base delay between retry attempts for failed requests"
+                            "helpKey": "Base delay between retry attempts for failed requests in milliseconds"
                         },
                         {
                             "key": "enableBatching",

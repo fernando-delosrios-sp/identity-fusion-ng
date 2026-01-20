@@ -67,7 +67,8 @@ export class ServiceRegistry {
                 this.forms,
                 this.attributes,
                 this.scoring,
-                this.schemas
+                this.schemas,
+                commandType
             )
     }
 
@@ -83,9 +84,5 @@ export class ServiceRegistry {
 
     static clear() {
         this.current = undefined
-    }
-
-    static getLogService(): LogService {
-        return this.getCurrent().log
     }
 }

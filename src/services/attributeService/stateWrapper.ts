@@ -1,4 +1,4 @@
-import { LogService } from '../logService'
+import { logger } from '@sailpoint/connector-sdk'
 import { LockService } from '../lockService'
 
 // ============================================================================
@@ -10,32 +10,22 @@ import { LockService } from '../lockService'
  */
 export class StateWrapper {
     state: Map<string, number> = new Map()
-    private log?: LogService
     private locks?: LockService
 
-    constructor(state?: any, log?: LogService, locks?: LockService) {
-        this.log = log
+    constructor(state?: any, locks?: LockService) {
         this.locks = locks
-        if (log) {
-            log.info(`Initializing StateWrapper with state: ${JSON.stringify(state)}`)
-        }
+        logger.info(`Initializing StateWrapper with state: ${JSON.stringify(state)}`)
         try {
             // Handle undefined, null, or empty state
             if (state && typeof state === 'object' && Object.keys(state).length > 0) {
                 this.state = new Map(Object.entries(state))
-                if (log) {
-                    log.debug(`Loaded ${this.state.size} counter values from state`)
-                }
+                logger.debug(`Loaded ${this.state.size} counter values from state`)
             } else {
                 this.state = new Map()
-                if (log) {
-                    log.debug('Initializing with empty state (no previous counter values)')
-                }
+                logger.debug('Initializing with empty state (no previous counter values)')
             }
         } catch (error) {
-            if (log) {
-                log.error(`Failed to convert state object to Map: ${error}. Initializing with empty Map`)
-            }
+            logger.error(`Failed to convert state object to Map: ${error}. Initializing with empty Map`)
             this.state = new Map()
         }
     }
@@ -57,9 +47,7 @@ export class StateWrapper {
      * Counters must be initialized via initializeCounters() before use
      */
     getCounter(key: string): () => Promise<number> {
-        if (this.log) {
-            this.log.debug(`Getting counter for key: ${key}`)
-        }
+        logger.debug(`Getting counter for key: ${key}`)
         return async () => {
             const lockKey = `counter:${key}`
 
@@ -67,9 +55,7 @@ export class StateWrapper {
                 // Ensure counter exists (should have been initialized, but check for safety)
                 if (!this.state.has(key)) {
                     const error = new Error(`Counter ${key} was not initialized. Call initializeCounters() first.`)
-                    if (this.log) {
-                        this.log.error(error.message)
-                    }
+                    logger.error(error.message)
                     throw error
                 }
 
@@ -83,11 +69,9 @@ export class StateWrapper {
                         `State update failed! Set ${key} to ${nextValue} but got ${verifyValue} when reading back`
                     )
                 }
-                if (this.log) {
-                    this.log.debug(
-                        `Persistent counter for key ${key} incremented from ${currentValue} to: ${nextValue} (verified: ${verifyValue})`
-                    )
-                }
+                logger.debug(
+                    `Persistent counter for key ${key} incremented from ${currentValue} to: ${nextValue} (verified: ${verifyValue})`
+                )
                 return nextValue
             })
         }
@@ -106,9 +90,7 @@ export class StateWrapper {
                 if (!this.state.has(key)) {
                     // Set to start - 1 so first increment returns 'start'
                     this.state.set(key, start - 1)
-                    if (this.log) {
-                        this.log.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
-                    }
+                    logger.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
                 }
             })
         } else {
@@ -116,9 +98,7 @@ export class StateWrapper {
             if (!this.state.has(key)) {
                 // Set to start - 1 so first increment returns 'start'
                 this.state.set(key, start - 1)
-                if (this.log) {
-                    this.log.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
-                }
+                logger.debug(`Initialized counter ${key} to ${start - 1} (first value will be ${start})`)
             }
         }
     }

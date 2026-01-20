@@ -34,6 +34,7 @@ export class SourceService {
     private sourcesById: Map<string, SourceInfo> = new Map()
     private sourcesByName: Map<string, SourceInfo> = new Map()
     private fusionLatestAggregationDate: Date | undefined
+    private sourceAggregationDates: Map<string, Date> = new Map()
     private _allSources?: SourceInfo[]
     private _fusionSourceId?: string
     private _fusionSourceOwner?: OwnerDto
@@ -124,12 +125,15 @@ export class SourceService {
         const apiSources = await this.client.paginate(listSources)
         assert(apiSources.length > 0, 'Sources not found')
 
+        // Build a Map for O(1) lookups instead of O(n) find() operations
+        const apiSourcesByName = new Map(apiSources.map((s) => [s.name!, s]))
+
         // Build unified source info from SourceConfig + API IDs
         const resolvedSources: SourceInfo[] = []
 
         // Add managed sources (from config.sources)
         for (const sourceConfig of this.sources) {
-            const apiSource = apiSources.find((x) => x.name === sourceConfig.name)
+            const apiSource = apiSourcesByName.get(sourceConfig.name)
             assert(apiSource, `Unable to find source: ${sourceConfig.name}`)
             resolvedSources.push({
                 id: apiSource.id!,
@@ -231,13 +235,12 @@ export class SourceService {
         const sourceInfo = this.sourcesById.get(sourceId)
         assert(sourceInfo, `Source not found for id: ${sourceId}`)
 
-        // Build filter: start with sourceId filter
-        let filters = `sourceId eq "${sourceId}"`
-
-        // Add account filter from SourceConfig if configured (only for managed sources)
+        // Build filter using array join for better performance
+        const filterParts: string[] = [`sourceId eq "${sourceId}"`]
         if (sourceInfo.isManaged && sourceInfo.config?.accountFilter) {
-            filters = `(${filters}) and (${sourceInfo.config.accountFilter})`
+            filterParts.push(`(${sourceInfo.config.accountFilter})`)
         }
+        const filters = filterParts.join(' and ')
 
         const requestParameters: AccountsApiListAccountsRequest = {
             filters,
@@ -314,13 +317,15 @@ export class SourceService {
         const sourceInfo = this.sourcesById.get(sourceId)
         assert(sourceInfo, `Source not found for id: ${sourceId}`)
 
-        // Start with sourceId + nativeIdentity filter
-        let filters = `sourceId eq "${sourceId}" and nativeIdentity eq "${nativeIdentity}"`
-
-        // Add account filter from SourceConfig if configured (only for managed sources)
+        // Build filter using array join for better performance
+        const filterParts: string[] = [
+            `sourceId eq "${sourceId}"`,
+            `nativeIdentity eq "${nativeIdentity}"`
+        ]
         if (sourceInfo.isManaged && sourceInfo.config?.accountFilter) {
-            filters = `(${filters}) AND (${sourceInfo.config.accountFilter})`
+            filterParts.push(`(${sourceInfo.config.accountFilter})`)
         }
+        const filters = filterParts.join(' and ')
 
         const requestParameters: AccountsApiListAccountsRequest = {
             filters,
@@ -352,24 +357,30 @@ export class SourceService {
     public async aggregateManagedSources(): Promise<void> {
         const managedSources = this.managedSources
         this.log.debug(`Checking aggregation status for ${managedSources.length} managed source(s)`)
-        const aggregationPromises = []
-        for (const source of managedSources) {
-            const sourceConfig = source.config
-            const forceAggregation = sourceConfig?.forceAggregation ?? false
+        
+        // Parallelize aggregation checks for better performance
+        const aggregationChecks = await Promise.all(
+            managedSources.map(async (source) => {
+                const sourceConfig = source.config
+                const forceAggregation = sourceConfig?.forceAggregation ?? false
 
-            if (!forceAggregation) {
-                this.log.debug(`Force aggregation is disabled for source ${source.name}, skipping`)
-                continue
-            }
+                if (!forceAggregation) {
+                    this.log.debug(`Force aggregation is disabled for source ${source.name}, skipping`)
+                    return { source, shouldAggregate: false }
+                }
 
-            const shouldAggregate = await this.shouldAggregateSource(source)
-            if (shouldAggregate) {
+                const shouldAggregate = await this.shouldAggregateSource(source)
+                return { source, shouldAggregate }
+            })
+        )
+
+        // Filter and aggregate sources that need aggregation
+        const aggregationPromises = aggregationChecks
+            .filter(({ shouldAggregate }) => shouldAggregate)
+            .map(({ source }) => {
                 this.log.info(`Aggregating source: ${source.name}`)
-                aggregationPromises.push(this.aggregateSourceAccounts(source.id))
-            } else {
-                this.log.debug(`Source ${source.name} does not need aggregation`)
-            }
-        }
+                return this.aggregateSourceAccounts(source.id)
+            })
 
         await Promise.all(aggregationPromises)
         this.log.debug('Source aggregation completed')
@@ -469,7 +480,13 @@ export class SourceService {
             this.fusionLatestAggregationDate = await this.getLatestAggregationDate(this.fusionSourceId)
         }
 
-        const latestSourceDate = await this.getLatestAggregationDate(source.id)
+        // Cache aggregation dates to avoid redundant API calls
+        let latestSourceDate = this.sourceAggregationDates.get(source.id)
+        if (!latestSourceDate) {
+            latestSourceDate = await this.getLatestAggregationDate(source.id)
+            this.sourceAggregationDates.set(source.id, latestSourceDate)
+        }
+
         return this.fusionLatestAggregationDate! > latestSourceDate
     }
 

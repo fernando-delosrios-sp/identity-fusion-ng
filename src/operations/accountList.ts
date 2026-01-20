@@ -1,6 +1,7 @@
 import { Response, StdAccountListInput, StdAccountListOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { assert, softAssert } from '../utils/assert'
+import { generateReport } from './helpers/generateReport'
 
 export const accountList = async (
     serviceRegistry: ServiceRegistry,
@@ -16,6 +17,7 @@ export const accountList = async (
         await sources.fetchAllSources()
         if (fusion.isReset()) {
             log.info('Reset flag detected, disabling reset and exiting')
+            await forms.deleteExistingForms()
             await fusion.disableReset()
             await fusion.resetState()
             return
@@ -39,6 +41,15 @@ export const accountList = async (
         ]
 
         await Promise.all(fetchPromises)
+        const fusionOwner = sources.fusionSourceOwner
+        if (fusion.fusionReportOnAggregation) {
+            const fusionOwnerIdentity = identities.getIdentityById(fusionOwner.id)
+            if (!fusionOwnerIdentity) {
+                log.info(`Fusion owner identity missing. Fetching identity: ${fusionOwner.id}`)
+                await identities.fetchIdentityById(fusionOwner.id!)
+            }
+        }
+
         await forms.fetchFormData()
         log.debug('All fetch operations completed')
 
@@ -55,12 +66,10 @@ export const accountList = async (
 
         if (fusion.fusionReportOnAggregation) {
             log.info('Generating and sending fusion report')
-            const fusionOwner = sources.fusionSourceOwner
             const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
             softAssert(fusionOwnerAccount, 'Fusion owner account not found')
             if (fusionOwnerAccount) {
-                const report = fusion.generateReport()
-                await messaging.sendReport(report, fusionOwnerAccount)
+                await generateReport(fusionOwnerAccount, serviceRegistry)
             }
         }
 

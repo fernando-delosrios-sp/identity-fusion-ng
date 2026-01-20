@@ -32,9 +32,40 @@ export const proxy: CommandHandler = async (context, input, res) => {
             },
             body: JSON.stringify(body),
         })
+
+        // Check if response is successful
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new ConnectorError(
+                `Proxy server returned error status ${response.status}: ${errorText || response.statusText}`
+            )
+        }
+
         const data = await response.text()
-        for (const line in data.split('\n')) {
-            res.send(JSON.parse(line))
+        
+        // Handle empty response
+        if (!data || data.trim().length === 0) {
+            return
+        }
+
+        // Process each line (for...of iterates over values, not indices)
+        const lines = data.split('\n')
+        for (const line of lines) {
+            // Skip empty lines
+            const trimmedLine = line.trim()
+            if (trimmedLine.length === 0) {
+                continue
+            }
+
+            try {
+                const parsed = JSON.parse(trimmedLine)
+                res.send(parsed)
+            } catch (parseError) {
+                // Log parse error but continue processing other lines
+                throw new ConnectorError(
+                    `Failed to parse JSON line from proxy response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}. Line: ${trimmedLine.substring(0, 100)}`
+                )
+            }
         }
     } catch (error) {
         throw new ConnectorError(error instanceof Error ? error.message : 'Unknown error')

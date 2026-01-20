@@ -110,10 +110,12 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
         }
     })
 
-    softAssert(config.sources.length > 0, 'No sources configured - at least one source is required', 'warn')
+    softAssert(config.sources.length > 0, 'No sources configured - no deduplication will be performed', 'warn')
     // Global aggregation task polling defaults (used for all sources with force aggregation enabled)
     config.taskResultRetries = config.taskResultRetries ?? 5
-    config.taskResultWait = config.taskResultWait ?? 1000
+    // taskResultWait is configured in seconds in connector-spec.json; convert to milliseconds for internal use
+    const taskResultWaitSeconds = config.taskResultWait ?? 1
+    config.taskResultWait = taskResultWaitSeconds * 1000
     config.correlateOnAggregation = config.correlateOnAggregation ?? false
     config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
@@ -144,12 +146,15 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.maxRetries = config.maxRetries ?? internalConfig.retriesConstant
     config.requestsPerSecond = config.requestsPerSecond ?? 10
     config.maxConcurrentRequests = config.maxConcurrentRequests ?? 10
+    // retryDelay is configured in milliseconds in connector-spec.json
     config.retryDelay = config.retryDelay ?? 1000 // 1 second base delay (only used as fallback, 429 responses use retry-after header)
     config.pageSize = config.batchSize ?? 250 // Paging size is 250 for all calls
     config.enableBatching = config.enableBatching ?? false
     config.enablePriority = config.enablePriority ?? false
-    // processingWait defaults to processingWaitConstant (60 seconds)
-    config.processingWait = config.processingWait ?? internalConfig.processingWaitConstant
+    // processingWait is configured in seconds in connector-spec.json; convert to milliseconds for internal use
+    const processingWaitSeconds =
+        config.processingWait !== undefined ? config.processingWait : internalConfig.processingWaitConstant / 1000
+    config.processingWait = processingWaitSeconds * 1000
 
     // ============================================================================
     // Developer Settings defaults

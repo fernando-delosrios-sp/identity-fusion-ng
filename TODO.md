@@ -9,3 +9,4 @@
 - Rethink source account filter
 - Consider enabled/disabled switch for card options
 - Only fetch relevant identity attributes
+- Implement performance logging (report???)
