@@ -205,7 +205,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Processing Control",
-                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.",
+                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.<br><br>Enable <strong>Force attribute refresh on each aggregation?</strong> to force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified.",
                     "items": [
                         {
                             "key": "deleteEmpty",
@@ -227,6 +227,13 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Clear any stuck processing state from a prior, incomplete run so that processing can safely restart"
+                        },
+                        {
+                            "key": "forceAttributeRefresh",
+                            "label": "Force attribute refresh on each aggregation?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified"
                         }
                     ]
                 }

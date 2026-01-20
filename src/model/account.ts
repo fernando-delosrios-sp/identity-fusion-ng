@@ -492,6 +492,8 @@ export class FusionAccount {
         }
 
         if (this._correlationPromises.length > 0) {
+            // Wait for all correlation promises to complete
+            // setCorrelatedAccount is called in the promise handlers, which updates state
             await Promise.allSettled(this._correlationPromises)
             this._correlationPromises = []
         }
@@ -665,6 +667,8 @@ export class FusionAccount {
     private setUncorrelated(): void {
         this._uncorrelated = true
         this._statuses.add('uncorrelated')
+        // Remove correlated action if account is uncorrelated
+        this._actions.delete('correlated')
     }
 
     private setUncorrelatedAccount(accountId?: string): void {
@@ -673,8 +677,10 @@ export class FusionAccount {
         this._accountIds.add(accountId)
         this._missingAccountIds.add(accountId)
 
+        // Update status and action when there are missing accounts
         this._actions.delete('correlated')
         this._statuses.add('uncorrelated')
+        this._uncorrelated = true
     }
 
     private setBaseline(): void {
@@ -705,30 +711,45 @@ export class FusionAccount {
     // Correlation Methods
     // ============================================================================
 
+    /**
+     * Update correlation status and action based on missing accounts
+     * Should be called after all layers are added to ensure correct status/action
+     */
+    public updateCorrelationStatus(): void {
+        if (this._missingAccountIds.size === 0) {
+            // All accounts are correlated
+            this._statuses.delete('uncorrelated')
+            this._actions.add('correlated')
+            this._uncorrelated = false
+        } else {
+            // There are missing accounts that need correlation
+            this._statuses.add('uncorrelated')
+            this._actions.delete('correlated')
+            this._uncorrelated = true
+        }
+    }
+
     public setCorrelatedAccount(accountId: string, promise?: Promise<unknown>): void {
         if (promise) {
             this._correlationPromises.push(promise)
         }
-        this._missingAccountIds.delete(accountId)
 
-        if (this._missingAccountIds.size === 0) {
-            this._statuses.delete('uncorrelated')
-            this._actions.add('correlated')
+        // Remove from missing accounts list
+        if (this._missingAccountIds.delete(accountId)) {
+            // Add history entry for successful correlation
+            this.addHistory(`Missing account ${accountId} correlated`)
         }
+
+        // Note: Status/action update happens after all correlation promises resolve in getISCAccount
     }
 
     public addCorrelationPromise(accountId: string, promise: Promise<unknown>): void {
         if (!promise) {
             return
         }
+        // Track the promise - it will be resolved in getISCAccount via resolvePendingOperations
+        // The promise handler (in correlateAccounts) will call setCorrelatedAccount on success
         this._correlationPromises.push(promise)
-        promise
-            .then(() => {
-                this.addHistory(`Missing account ${accountId} correlated`)
-            })
-            .catch(() => {
-                // Ignore errors; correlation is async and shouldn't affect current state
-            })
     }
 
     // ============================================================================

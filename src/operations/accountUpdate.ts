@@ -50,6 +50,7 @@ export const accountUpdate = async (
                             break
                         case 'correlate':
                             await correlateAction(fusionAccount, change.op)
+                            // Status/action will be updated after correlation promises resolve in getISCAccount
                             break
                         default:
                             log.crash(`Unsupported action: ${action}`)

@@ -31,6 +31,7 @@ export class AttributeService {
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly sourceConfigs: SourceConfig[]
     private readonly maxAttempts?: number
+    private readonly forceAttributeRefresh: boolean
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -48,6 +49,7 @@ export class AttributeService {
         this.attributeMerge = config.attributeMerge
         this.sourceConfigs = config.sources
         this.maxAttempts = config.maxAttempts
+        this.forceAttributeRefresh = config.forceAttributeRefresh
         // Clone attribute definitions into an internal array so we never touch
         // config.attributeDefinitions after construction, and always have a values Set.
         this.attributeDefinitionConfig =
@@ -187,7 +189,7 @@ export class AttributeService {
                 : this.sourceConfigs.map((sc) => sc.name)
 
         // If refresh is needed, process source attributes in established order
-        if (needsRefresh && sourceAttributeMap.size > 0) {
+        if ((needsRefresh || this.forceAttributeRefresh) && sourceAttributeMap.size > 0) {
             const schemaAttributes = this.schemas.listSchemaAttributeNames()
             // Process each schema attribute
             for (const attribute of schemaAttributes) {
@@ -234,7 +236,7 @@ export class AttributeService {
      * Refresh non-unique attributes for a fusion account
      */
     public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
+        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
         this.log.debug(
             `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
         )
@@ -251,7 +253,7 @@ export class AttributeService {
      * For existing accounts, shouldSkipAttributeGeneration will skip generation if the attribute already exists.
      */
     public async refreshUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
+        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
         this.log.debug(`Refreshing unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`)
 
         const allDefinitions = this.attributeDefinitionConfig
@@ -634,6 +636,11 @@ export class AttributeService {
         refresh: boolean | undefined,
         fusionAccount: FusionAccount
     ): boolean {
+        // If forceAttributeRefresh is enabled, never skip generation
+        if (this.forceAttributeRefresh) {
+            return false
+        }
+
         // Check both current attributes and previous attributes to handle cases where
         // attributes exist but haven't been copied to current yet (edge case)
         // This prevents counter attributes from being regenerated for existing accounts

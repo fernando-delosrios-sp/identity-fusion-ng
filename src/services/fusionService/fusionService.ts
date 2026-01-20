@@ -181,13 +181,13 @@ export class FusionService {
         fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
         await this.attributes.registerUniqueAttributes(fusionAccount)
-        if (fusionAccount.needsRefresh) {
-            this.attributes.mapAttributes(fusionAccount)
-            await this.attributes.refreshNonUniqueAttributes(fusionAccount)
-        }
+        this.attributes.mapAttributes(fusionAccount)
+        await this.attributes.refreshNonUniqueAttributes(fusionAccount)
 
-        if (!account.uncorrelated && this.correlateOnAggregation) {
-            this.identities.correlateAccounts(fusionAccount)
+        // Correlate missing accounts if correlateOnAggregation is enabled and there are missing accounts
+        // Status/action will be updated after correlation promises resolve in getISCAccount
+        if (this.correlateOnAggregation && fusionAccount.missingAccountIds.length > 0) {
+            await this.identities.correlateAccounts(fusionAccount)
         }
 
         return fusionAccount
@@ -239,6 +239,7 @@ export class FusionService {
 
             this.attributes.mapAttributes(fusionAccount)
             await this.attributes.refreshAttributes(fusionAccount)
+
             const key = this.attributes.getSimpleKey(fusionAccount)
             fusionAccount.setKey(key)
 
@@ -309,7 +310,6 @@ export class FusionService {
             const key = this.attributes.getSimpleKey(fusionAccount)
             fusionAccount.setKey(key)
 
-            // Use setter method to add to appropriate map
             this.setFusionAccount(fusionAccount)
         }
     }
@@ -430,6 +430,8 @@ export class FusionService {
      */
     public async getISCAccount(fusionAccount: FusionAccount): Promise<StdAccountListOutput> {
         await fusionAccount.resolvePendingOperations()
+        // Update correlation status/action after all correlation promises have resolved
+        fusionAccount.updateCorrelationStatus()
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
         const disabled = fusionAccount.disabled
         const key = fusionAccount.key
