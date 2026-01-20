@@ -178,10 +178,12 @@ export class IdentityService {
                 ],
             }
 
-            const correlationPromise = accountsApi.updateAccount(requestParameters)
+            // Use client.execute to ensure proper queue handling if enabled
+            const correlationPromise = this.client
+                .execute(() => accountsApi.updateAccount(requestParameters))
                 .then(() => {
                     // On success, mark account as correlated and remove from missing list
-                    // This also adds history and updates status/action
+                    // This also adds history entry
                     fusionAccount.setCorrelatedAccount(accountId)
                     this.log.debug(`Successfully correlated account ${accountId} to identity ${identityId}`)
                 })

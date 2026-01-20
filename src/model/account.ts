@@ -637,9 +637,23 @@ export class FusionAccount {
 
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
-        if (!this._accountIds.has(accountId)) {
+        const isNewAccount = !this._accountIds.has(accountId)
+        const isCorrelated = this._identityId && account.identityId === this._identityId
+
+        if (isNewAccount) {
             this._accountIds.add(accountId)
-            this.setUncorrelatedAccount(accountId)
+
+            // Check if the account is already correlated (has the same identityId)
+            if (isCorrelated) {
+                // Account is already correlated - mark as correlated, not missing
+                this.setCorrelatedAccount(accountId)
+            } else {
+                // Account is not correlated yet - mark as uncorrelated/missing
+                this.setUncorrelatedAccount(accountId)
+            }
+        } else if (isCorrelated && this._missingAccountIds.has(accountId)) {
+            // Account was previously uncorrelated but is now correlated - update status
+            this.setCorrelatedAccount(accountId)
         }
 
         if (!this._needsRefresh) {

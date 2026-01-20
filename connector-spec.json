@@ -175,10 +175,10 @@
                                         },
                                         {
                                             "key": "accountLimit",
-                                            "label": "Account aggregation limit",
+                                            "label": "Aggregation batch size",
                                             "type": "number",
                                             "required": false,
-                                            "helpKey": "Set the maximum number of accounts to aggregate from this source. This is useful for initial loading of a large number of accounts with potential internal duplicates."
+                                            "helpKey": "Leave empty to aggregate all accounts from this source or set a maximum number of accounts to aggregate per run. This is useful for initial loading of a large number of accounts with potential internal duplicates."
                                         }
                                     ]
                                 }
@@ -695,10 +695,22 @@
                             "parentValue": "true",
                             "helpKey": "Minimum log level to send to external logging service (Error, Warn, Info, or Debug)",
                             "options": [
-                                { "label": "Error", "value": "error" },
-                                { "label": "Warn", "value": "warn" },
-                                { "label": "Info", "value": "info" },
-                                { "label": "Debug", "value": "debug" }
+                                {
+                                    "label": "Error",
+                                    "value": "error"
+                                },
+                                {
+                                    "label": "Warn",
+                                    "value": "warn"
+                                },
+                                {
+                                    "label": "Info",
+                                    "value": "info"
+                                },
+                                {
+                                    "label": "Debug",
+                                    "value": "debug"
+                                }
                             ]
                         }
                     ]
