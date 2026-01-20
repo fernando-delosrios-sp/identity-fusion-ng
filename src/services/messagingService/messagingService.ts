@@ -36,8 +36,8 @@ import {
  * Handles workflow creation, email composition, and notification delivery.
  */
 export class MessagingService {
-    private _workflow: WorkflowV2025 | undefined
-    private _templates: Map<string, HandlebarsTemplateDelegate> = new Map()
+    private workflow: WorkflowV2025 | undefined
+    private templates: Map<string, HandlebarsTemplateDelegate> = new Map()
     private readonly workflowName: string
     private readonly cloudDisplayName: string
     private readonly urlContext: UrlContext
@@ -59,7 +59,7 @@ export class MessagingService {
         this.reportAttributes = config.fusionFormAttributes ?? []
         this.urlContext = createUrlContext(config.baseurl)
         registerHandlebarsHelpers()
-        this._templates = compileEmailTemplates()
+        this.templates = compileEmailTemplates()
     }
 
     // ------------------------------------------------------------------------
@@ -71,7 +71,7 @@ export class MessagingService {
      * This should be called before sending any emails to ensure the workflow is ready.
      */
     public async fetchSender(): Promise<void> {
-        if (this._workflow) {
+        if (this.workflow) {
             this.log.debug('Email workflow already prepared')
             return
         }
@@ -89,12 +89,12 @@ export class MessagingService {
         // First, check if the workflow already exists
         const existingWorkflow = await this.findWorkflowByName(workflowName)
         if (existingWorkflow) {
-            this._workflow = existingWorkflow
-            this.log.info(`Found existing workflow: ${workflowName} (ID: ${this._workflow.id})`)
+            this.workflow = existingWorkflow
+            this.log.info(`Found existing workflow: ${workflowName} (ID: ${this.workflow.id})`)
 
             // The Workflows v2025 test endpoint rejects enabled workflows (400).
             // We rely on testWorkflow for delivery in this connector, so keep it disabled.
-            await this.disableWorkflowIfEnabled(this._workflow)
+            await this.disableWorkflowIfEnabled(this.workflow)
             return
         }
 
@@ -103,14 +103,14 @@ export class MessagingService {
             const emailWorkflow = new EmailWorkflow(workflowName, owner)
             assert(emailWorkflow, 'Failed to create email workflow object')
 
-            // Ensure the workflow is disabled so we can call testWorkflow safely.
-            ;(emailWorkflow as any).enabled = false
+                // Ensure the workflow is disabled so we can call testWorkflow safely.
+                ; (emailWorkflow as any).enabled = false
 
-            this._workflow = await this.createWorkflow(emailWorkflow)
-            assert(this._workflow, 'Failed to create workflow')
-            assert(this._workflow.id, 'Workflow ID is required')
+            this.workflow = await this.createWorkflow(emailWorkflow)
+            assert(this.workflow, 'Failed to create workflow')
+            assert(this.workflow.id, 'Workflow ID is required')
 
-            this.log.info(`Created workflow: ${workflowName} (ID: ${this._workflow.id})`)
+            this.log.info(`Created workflow: ${workflowName} (ID: ${this.workflow.id})`)
         } catch (error) {
             this.log.error(`Failed to create workflow: ${error}`)
             throw new Error(`Workflow preparation failed. Unable to create workflow "${workflowName}": ${error}`)
@@ -194,8 +194,8 @@ export class MessagingService {
             formUrl: formInstance.standAloneFormUrl,
         }
 
-        assert(this._templates, 'Email templates are required')
-        const body = renderFusionReviewEmail(this._templates, emailData)
+        assert(this.templates, 'Email templates are required')
+        const body = renderFusionReviewEmail(this.templates, emailData)
         assert(body, 'Failed to render fusion review email body')
 
         await this.sendEmail(recipientEmails, subject, body)
@@ -246,7 +246,7 @@ export class MessagingService {
                 report.potentialDuplicates || report.accounts.filter((a) => a.matches.length > 0).length,
             reportDate: report.reportDate || new Date(),
         }
-        const body = renderFusionReport(this._templates, emailData)
+        const body = renderFusionReport(this.templates, emailData)
 
         const recipients = Array.from(recipientEmails)
         await this.sendEmail(recipients, subject, body)
@@ -261,13 +261,13 @@ export class MessagingService {
      * Get the workflow, ensuring it's prepared first
      */
     private async getWorkflow(): Promise<WorkflowV2025> {
-        if (!this._workflow) {
+        if (!this.workflow) {
             await this.fetchSender()
         }
-        if (!this._workflow) {
+        if (!this.workflow) {
             throw new Error('Workflow not available after preparation')
         }
-        return this._workflow
+        return this.workflow
     }
 
     /**

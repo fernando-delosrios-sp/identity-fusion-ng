@@ -25,8 +25,8 @@ import { StateWrapper } from './stateWrapper'
  */
 export class AttributeService {
     private _attributeMappingConfig?: Map<string, AttributeMappingConfig>
-    private _attributeDefinitionConfig: AttributeDefinition[] = []
-    private _stateWrapper?: StateWrapper
+    private attributeDefinitionConfig: AttributeDefinition[] = []
+    private stateWrapper?: StateWrapper
     private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly sourceConfigs: SourceConfig[]
@@ -50,7 +50,7 @@ export class AttributeService {
         this.maxAttempts = config.maxAttempts
         // Clone attribute definitions into an internal array so we never touch
         // config.attributeDefinitions after construction, and always have a values Set.
-        this._attributeDefinitionConfig =
+        this.attributeDefinitionConfig =
             config.attributeDefinitions?.map((x) => ({
                 ...x,
                 values: new Set<string>(),
@@ -112,7 +112,7 @@ export class AttributeService {
      * Injects lock service for thread-safe counter operations in parallel processing
      */
     public setStateWrapper(state: any): void {
-        this._stateWrapper = new StateWrapper(state, this.locks)
+        this.stateWrapper = new StateWrapper(state, this.locks)
     }
 
     /**
@@ -121,7 +121,7 @@ export class AttributeService {
      */
     public async initializeCounters(): Promise<void> {
         const stateWrapper = this.getStateWrapper()
-        const counterDefinitions = this._attributeDefinitionConfig.filter((def) => def.type === 'counter')
+        const counterDefinitions = this.attributeDefinitionConfig.filter((def) => def.type === 'counter')
 
         if (counterDefinitions.length === 0) {
             return
@@ -220,7 +220,7 @@ export class AttributeService {
      * Refresh all attributes for a fusion account
      */
     public async refreshAttributes(fusionAccount: FusionAccount, force: boolean = false): Promise<void> {
-        const allDefinitions = this._attributeDefinitionConfig
+        const allDefinitions = this.attributeDefinitionConfig
         if (force) {
             await this.unregisterUniqueAttributes(fusionAccount)
             allDefinitions.forEach((def) => {
@@ -239,7 +239,7 @@ export class AttributeService {
             `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
         )
 
-        const allDefinitions = this._attributeDefinitionConfig
+        const allDefinitions = this.attributeDefinitionConfig
         const nonUniqueAttributeDefinitions = allDefinitions.filter((x) => !isUniqueAttribute(x))
 
         await this._refreshAttributes(fusionAccount, nonUniqueAttributeDefinitions)
@@ -254,7 +254,7 @@ export class AttributeService {
         if (!fusionAccount.needsRefresh) return
         this.log.debug(`Refreshing unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`)
 
-        const allDefinitions = this._attributeDefinitionConfig
+        const allDefinitions = this.attributeDefinitionConfig
         const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
 
         await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
@@ -270,7 +270,7 @@ export class AttributeService {
         const logMessage = operation === 'register' ? 'Registering' : 'Unregistering'
         this.log.debug(`${logMessage} unique attributes for account: ${fusionAccount.nativeIdentity}`)
 
-        const uniqueDefinitions = this._attributeDefinitionConfig.filter(
+        const uniqueDefinitions = this.attributeDefinitionConfig.filter(
             (def) => def.type === 'unique' || def.type === 'uuid'
         )
 
@@ -362,12 +362,12 @@ export class AttributeService {
     }
 
     private getAttributeDefinition(name: string): AttributeDefinition | undefined {
-        return this._attributeDefinitionConfig.find((d) => d.name === name)
+        return this.attributeDefinitionConfig.find((d) => d.name === name)
     }
 
     private getStateWrapper(): StateWrapper {
-        assert(this._stateWrapper, 'State wrapper is not set')
-        return this._stateWrapper!
+        assert(this.stateWrapper, 'State wrapper is not set')
+        return this.stateWrapper!
     }
 
     // ------------------------------------------------------------------------
