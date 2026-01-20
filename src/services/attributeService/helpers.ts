@@ -29,13 +29,22 @@ export const attrSplit = (text: string): string[] => {
 
 /**
  * Concatenate array of strings into bracketed format: [value1] [value2]
+ * Optimized to avoid unnecessary array operations and early return for empty lists
+ * 
+ * @param list - Array of strings to concatenate
+ * @param alreadyProcessed - If true, assumes list is already deduplicated and sorted (for performance)
  */
-export const attrConcat = (list: string[]): string => {
-    const set = new Set(list)
-    return [...set]
-        .sort()
-        .map((x) => `[${x}]`)
-        .join(' ')
+export const attrConcat = (list: string[], alreadyProcessed: boolean = false): string => {
+    if (list.length === 0) {
+        return ''
+    }
+    
+    // If already deduplicated and sorted (e.g., from processAttributeMapping), skip redundant work
+    const unique = alreadyProcessed 
+        ? list 
+        : Array.from(new Set(list)).sort()
+    
+    return unique.map((x) => `[${x}]`).join(' ')
 }
 
 /**
@@ -46,78 +55,141 @@ export const processAttributeMapping = (
     sourceAttributeMap: Map<string, Attributes[]>,
     sourceOrder: string[]
 ): any => {
+    const { attributeMerge } = config
+
+    // Handle single-value merge strategies with early return
+    if (attributeMerge === 'first' || attributeMerge === 'source') {
+        return processSingleValueMerge(config, sourceAttributeMap, sourceOrder)
+    }
+
+    // Handle multi-value merge strategies
+    return processMultiValueMerge(config, sourceAttributeMap, sourceOrder)
+}
+
+/**
+ * Process attribute mapping for single-value merge strategies ('first' or 'source')
+ * Returns the first matching value found or undefined
+ */
+const processSingleValueMerge = (
+    config: AttributeMappingConfig,
+    sourceAttributeMap: Map<string, Attributes[]>,
+    sourceOrder: string[]
+): any => {
     const { sourceAttributes, attributeName, attributeMerge, source: specifiedSource } = config
-    const multiValue: string[] = []
     const attributeNames = Array.from(new Set([...sourceAttributes, attributeName]))
 
-    // Process sources in established order
+    for (const sourceName of sourceOrder) {
+        // For 'source' merge strategy, only process the specified source
+        if (attributeMerge === 'source' && specifiedSource && sourceName !== specifiedSource) {
+            continue
+        }
+
+        const accounts = sourceAttributeMap.get(sourceName)
+        if (!accounts || accounts.length === 0) {
+            continue
+        }
+
+        const firstValue = findFirstAttributeValue(accounts, attributeNames)
+        if (firstValue !== undefined) {
+            return firstValue
+        }
+    }
+
+    return undefined
+}
+
+/**
+ * Find the first attribute value from a list of accounts
+ */
+const findFirstAttributeValue = (accounts: Attributes[], attributeNames: string[]): any => {
+    for (const account of accounts) {
+        for (const attribute of attributeNames) {
+            const value = account[attribute]
+            if (value !== undefined && value !== null && value !== '') {
+                const splitValues = typeof value === 'string' ? attrSplit(value) : [value]
+                return splitValues[0]
+            }
+        }
+    }
+    return undefined
+}
+
+/**
+ * Process attribute mapping for multi-value merge strategies ('list' or 'concatenate')
+ * Returns a list of unique sorted values or a concatenated string
+ */
+const processMultiValueMerge = (
+    config: AttributeMappingConfig,
+    sourceAttributeMap: Map<string, Attributes[]>,
+    sourceOrder: string[]
+): any => {
+    const { sourceAttributes, attributeName, attributeMerge } = config
+    const attributeNames = Array.from(new Set([...sourceAttributes, attributeName]))
+    const allValues = collectAllAttributeValues(sourceAttributeMap, sourceOrder, attributeNames)
+
+    if (allValues.length === 0) {
+        return undefined
+    }
+
+    // Deduplicate and sort once for both 'list' and 'concatenate' strategies
+    const uniqueSorted = [...new Set(allValues)].sort()
+
+    if (attributeMerge === 'list') {
+        return uniqueSorted
+    } else if (attributeMerge === 'concatenate') {
+        // Pass true to skip redundant deduplication/sorting since we already did it above
+        return attrConcat(uniqueSorted, true)
+    }
+
+    return undefined
+}
+
+/**
+ * Collect all attribute values from sources in order
+ */
+const collectAllAttributeValues = (
+    sourceAttributeMap: Map<string, Attributes[]>,
+    sourceOrder: string[],
+    attributeNames: string[]
+): string[] => {
+    const allValues: string[] = []
+
     for (const sourceName of sourceOrder) {
         const accounts = sourceAttributeMap.get(sourceName)
         if (!accounts || accounts.length === 0) {
             continue
         }
 
-        // For 'source' merge strategy, only process the specified source
-        if (attributeMerge === 'source' && specifiedSource && sourceName !== specifiedSource) {
-            continue
-        }
+        const sourceValues = extractValuesFromAccounts(accounts, attributeNames)
+        allValues.push(...sourceValues)
+    }
 
-        // Process each Attributes object in the array for this source
-        for (const account of accounts) {
-            // Look for values in source attributes (in order of sourceAttributes array)
-            const values: any[] = []
-            for (const attribute of attributeNames) {
-                const value = account[attribute]
-                if (value !== undefined && value !== null && value !== '') {
-                    values.push(value)
-                    // For 'first' and 'source' strategies, stop after first match
-                    if (['first', 'source'].includes(attributeMerge)) {
-                        break
-                    }
+    return allValues
+}
+
+/**
+ * Extract and split all attribute values from a list of accounts
+ */
+const extractValuesFromAccounts = (accounts: Attributes[], attributeNames: string[]): string[] => {
+    const values: string[] = []
+
+    for (const account of accounts) {
+        for (const attribute of attributeNames) {
+            const value = account[attribute]
+            if (value !== undefined && value !== null && value !== '') {
+                let splitValues: string[]
+                if (typeof value === 'string') {
+                    splitValues = attrSplit(value)
+                } else {
+                    // Convert non-string values to strings
+                    splitValues = [String(value)]
                 }
-            }
-
-            if (values.length > 0) {
-                // Split bracketed values
-                const splitValues = values.map((x) => (typeof x === 'string' ? attrSplit(x) : [x])).flat()
-
-                // Handle different merge strategies
-                switch (attributeMerge) {
-                    case 'first':
-                        // Return first value from first source that has it
-                        return splitValues[0]
-
-                    case 'source':
-                        if (specifiedSource === sourceName) {
-                            // Return value from specified source
-                            return splitValues[0]
-                        }
-                        break
-
-                    case 'list':
-                        // Collect values for later aggregation
-                        multiValue.push(...splitValues)
-                        break
-                    case 'concatenate':
-                        // Collect values for later aggregation
-                        multiValue.push(...splitValues)
-                        break
-                }
+                values.push(...splitValues)
             }
         }
     }
 
-    // Apply multi-value merge strategies
-    if (multiValue.length > 0) {
-        const uniqueSorted = [...new Set(multiValue)].sort()
-        if (attributeMerge === 'list') {
-            return uniqueSorted
-        } else if (attributeMerge === 'concatenate') {
-            return attrConcat(uniqueSorted)
-        }
-    }
-
-    return undefined
+    return values
 }
 
 /**

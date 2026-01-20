@@ -1,5 +1,5 @@
 import { Account, IdentityDocument, SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
-import { StdAccountListOutput } from '@sailpoint/connector-sdk'
+import { StdAccountListOutput, StandardCommand } from '@sailpoint/connector-sdk'
 import { FusionConfig } from '../../model/config'
 import { LogService } from '../logService'
 import { FormService } from '../formService'
@@ -29,7 +29,7 @@ export class FusionService {
     private _fusionIdentityMap: Map<string, FusionAccount> = new Map()
     private _fusionAccountMap: Map<string, FusionAccount> = new Map()
     // Managed accounts that were flagged as potential duplicates (forms created)
-    private _potentialDuplicateMap: Map<string, FusionAccount> = new Map()
+    private potentialDuplicateAccounts: FusionAccount[] = []
     private _reviewersBySourceId: Map<string, Set<FusionAccount>> = new Map()
     private readonly sourcesByName: Map<string, SourceInfo> = new Map()
     private readonly reset: boolean
@@ -39,6 +39,7 @@ export class FusionService {
     public readonly fusionOwnerIsGlobalReviewer: boolean
     public readonly fusionReportOnAggregation: boolean
     public newManagedAccountsCount: number = 0
+    public readonly commandType?: StandardCommand
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -52,7 +53,8 @@ export class FusionService {
         private forms: FormService,
         private attributes: AttributeService,
         private scoring: ScoringService,
-        private schemas: SchemaService
+        private schemas: SchemaService,
+        commandType?: StandardCommand
     ) {
         this.reset = config.reset
         this.correlateOnAggregation = config.correlateOnAggregation
@@ -60,6 +62,7 @@ export class FusionService {
         this.fusionReportOnAggregation = config.fusionReportOnAggregation ?? false
         this.reportAttributes = config.fusionFormAttributes ?? []
         this.urlContext = createUrlContext(config.baseurl)
+        this.commandType = commandType
     }
 
     // ------------------------------------------------------------------------
@@ -130,7 +133,9 @@ export class FusionService {
      */
     public async processFusionAccounts(): Promise<void> {
         const fusionAccounts = this.sources.fusionAccounts
+        this.log.info(`Processing ${fusionAccounts.length} fusion account(s)`)
         await Promise.all(fusionAccounts.map((x: Account) => this.processFusionAccount(x)))
+        this.log.info('Fusion accounts processing completed')
     }
 
     /**
@@ -175,7 +180,11 @@ export class FusionService {
         // Pass the captured map reference directly
         fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
-        await this.attributes.processFusionAccountAttributes(fusionAccount)
+        await this.attributes.registerUniqueAttributes(fusionAccount)
+        if (fusionAccount.needsRefresh) {
+            this.attributes.mapAttributes(fusionAccount)
+            await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+        }
 
         if (!account.uncorrelated && this.correlateOnAggregation) {
             this.identities.correlateAccounts(fusionAccount)
@@ -193,7 +202,7 @@ export class FusionService {
      */
     public async processIdentities(): Promise<void> {
         const { identities } = this.identities
-        this.log.debug(`Processing ${identities.length} identities`)
+        this.log.info(`Processing ${identities.length} identities`)
         await Promise.all(identities.map((x) => this.processIdentity(x)))
         const { managedSources } = this.sources
         managedSources.forEach((source) => {
@@ -210,7 +219,7 @@ export class FusionService {
                 })
             }
         }
-        this.log.debug('Identities processing completed')
+        this.log.info('Identities processing completed')
     }
 
     /**
@@ -246,7 +255,7 @@ export class FusionService {
      */
     public async processIdentityFusionDecisions(): Promise<void> {
         const identityFusionDecisions = this.forms.getIdentityFusionDecisions()
-        this.log.debug(`Processing ${identityFusionDecisions.length} identity fusion decision(s)`)
+        this.log.info(`Processing ${identityFusionDecisions.length} identity fusion decision(s)`)
 
         // First, populate reviewer reviews from pending (unfinished) decisions that have form URLs.
         // This replaces FormService.populateReviewerMap and avoids extra form/instance API calls.
@@ -266,7 +275,7 @@ export class FusionService {
 
         // Then, apply only finished decisions to fusion identities.
         await Promise.all(identityFusionDecisions.map((x) => this.processIdentityFusionDecision(x)))
-        this.log.debug('Identity fusion decisions processing completed')
+        this.log.info('Identity fusion decisions processing completed')
     }
 
     /**
@@ -315,9 +324,9 @@ export class FusionService {
     public async processManagedAccounts(): Promise<void> {
         const { managedAccounts } = this.sources
         this.newManagedAccountsCount = managedAccounts.length
-        this.log.debug(`Processing ${managedAccounts.length} managed account(s)`)
+        this.log.info(`Processing ${managedAccounts.length} managed account(s)`)
         await Promise.all(managedAccounts.map((x: Account) => this.processManagedAccount(x)))
-        this.log.debug('Managed accounts processing completed')
+        this.log.info('Managed accounts processing completed')
     }
 
     /**
@@ -327,14 +336,6 @@ export class FusionService {
         const fusionAccount = await this.analyzeManagedAccount(account)
 
         if (fusionAccount.isMatch) {
-            this.log.debug(
-                `Account ${account.name} [${fusionAccount.sourceName}] is a potential duplicate, creating fusion form`
-            )
-
-            // Keep a reference for reporting (these accounts are not added to _fusionAccountMap)
-            const key = fusionAccount.managedAccountId ?? account.id ?? `${fusionAccount.sourceName}:${account.name}`
-            this._potentialDuplicateMap.set(key, fusionAccount)
-
             const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
             assert(sourceInfo, 'Source info not found')
             const reviewers = this._reviewersBySourceId.get(sourceInfo.id!)
@@ -363,8 +364,18 @@ export class FusionService {
      * Analyze a single managed account
      */
     public async analyzeManagedAccount(account: Account): Promise<FusionAccount> {
+        const { name, sourceName } = account
         const fusionAccount = await this.preProcessManagedAccount(account)
         this.scoring.scoreFusionAccount(fusionAccount, this.fusionIdentities)
+
+        if (fusionAccount.isMatch) {
+            this.log.debug(
+                `Account ${name} [${sourceName}] is a potential duplicate, creating fusion form`
+            )
+
+            // Keep a reference for reporting (these accounts are not added to _fusionAccountMap)
+            this.potentialDuplicateAccounts.push(fusionAccount)
+        }
 
         return fusionAccount
     }
@@ -499,7 +510,7 @@ export class FusionService {
         const accounts: FusionReportAccount[] = []
 
         // Report on the managed accounts that were flagged as potential duplicates (forms created)
-        for (const fusionAccount of this._potentialDuplicateMap.values()) {
+        for (const fusionAccount of this.potentialDuplicateAccounts) {
             const fusionMatches = fusionAccount.fusionMatches
             if (fusionMatches && fusionMatches.length > 0) {
                 const matches = fusionMatches.map((match) => ({

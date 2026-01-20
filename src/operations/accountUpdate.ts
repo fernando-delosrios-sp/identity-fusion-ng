@@ -17,7 +17,6 @@ export const accountUpdate = async (
     try {
         log.info(`Updating account ${input.identity}...`)
         assert(input.identity, 'Account identity is required')
-        assert(input.schema, 'Account schema is required')
         assert(input.changes, 'Account changes are required')
         assert(input.changes.length > 0, 'At least one change is required')
 
@@ -34,7 +33,7 @@ export const accountUpdate = async (
             assert(change.attribute, 'Change attribute is required')
 
             if (change.attribute === 'actions') {
-                const actions = [...(change.value ?? [])]
+                const actions = [].concat(change.value ?? []).flat()
                 assert(actions.length > 0, 'Actions array cannot be empty')
                 log.debug(`Processing ${actions.length} action(s) with operation: ${change.op}`)
 

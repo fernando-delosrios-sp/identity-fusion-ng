@@ -2,7 +2,7 @@ import { transliterate } from 'transliteration'
 import velocityjs from 'velocityjs'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import * as Datefns from 'date-fns'
-import { LogService } from '../logService'
+import { logger } from '@sailpoint/connector-sdk'
 
 /**
  * Normalize string by transliterating and removing special characters
@@ -46,54 +46,78 @@ export const switchCase = (str: string, caseType: 'lower' | 'upper' | 'capitaliz
 export const evaluateVelocityTemplate = (
     expression: string,
     context: RenderContext,
-    maxLength?: number,
-    log?: LogService
+    maxLength?: number
 ): string | undefined => {
     const extendedContext: RenderContext = { ...context, Math, Date, Datefns }
-    if (log) {
-        log.debug(`Evaluating velocity template - expression: ${expression}`)
-    }
+    logger.debug(`Evaluating velocity template - expression: ${expression}`)
 
     const template = velocityjs.parse(expression)
     const velocity = new velocityjs.Compile(template)
     let result = velocity.render(extendedContext)
+
     if (maxLength && result.length > maxLength) {
-        if (extendedContext.counter && extendedContext.counter !== '') {
-            if (expression.endsWith('$counter') || expression.endsWith('${counter}')) {
-                const originalCounter = extendedContext.counter
-                const originalCounterLength = originalCounter.toString().length
-                result = result.substring(0, maxLength - originalCounterLength) + originalCounter
-            } else {
-                if (log) {
-                    log.error(
-                        `Counter variable is not found at the end of the expression: ${expression}. Cannot truncate the result to the maximum length.`
-                    )
-                }
-            }
-        } else {
-            result = result.substring(0, maxLength)
-        }
+        result = truncateResultToMaxLength(result, expression, extendedContext, maxLength)
     }
 
-    if (log) {
-        log.debug(`Velocity template evaluation result: ${result}`)
-    }
+    logger.debug(`Velocity template evaluation result: ${result}`)
     return result
 }
 
 /**
- * Check if a Velocity template expression contains a specific variable
+ * Truncate result to maxLength, preserving counter if present
  */
-export const templateHasVariable = (expression: string, variable: string, log?: LogService): boolean => {
-    if (log) {
-        log.debug(`Checking if template contains variable: ${variable} in expression: ${expression}`)
+const truncateResultToMaxLength = (
+    result: string,
+    expression: string,
+    context: RenderContext,
+    maxLength: number
+): string => {
+    // If counter is present and at the end of expression, preserve it
+    if (hasCounterAtEnd(context, expression)) {
+        return truncateWithCounterPreserved(result, context, maxLength, expression)
     }
-    const template = velocityjs.parse(expression)
-    const hasVariable = template.find((x) => (x as any).id === variable) ? true : false
-    if (log) {
-        log.debug(`Template variable check result - variable: ${variable}, found: ${hasVariable}`)
+
+    // Simple truncation if no counter or counter is not at the end
+    if (context.counter && context.counter !== '') {
+        logger.error(
+            `Counter variable is not found at the end of the expression: ${expression}. Cannot truncate the result to the maximum length.`
+        )
     }
-    return hasVariable
+
+    return result.substring(0, maxLength)
+}
+
+/**
+ * Check if counter exists in context and is at the end of expression
+ */
+const hasCounterAtEnd = (context: RenderContext, expression: string): boolean => {
+    const hasCounter = context.counter && context.counter !== ''
+    const counterAtEnd = expression.endsWith('$counter') || expression.endsWith('${counter}')
+    return hasCounter && counterAtEnd
+}
+
+/**
+ * Truncate result preserving counter at the end
+ */
+const truncateWithCounterPreserved = (
+    result: string,
+    context: RenderContext,
+    maxLength: number,
+    expression: string
+): string => {
+    const originalCounter = context.counter!
+    const originalCounterLength = originalCounter.toString().length
+    const availableLength = maxLength - originalCounterLength
+    
+    if (availableLength < 0) {
+        logger.error(
+            `Maximum length ${maxLength} is less than counter length ${originalCounterLength} for expression: ${expression}`
+        )
+        return result.substring(0, maxLength)
+    }
+
+    const truncatedBase = result.substring(0, availableLength)
+    return truncatedBase + originalCounter
 }
 
 /**

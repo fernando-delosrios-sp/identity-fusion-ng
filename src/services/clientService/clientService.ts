@@ -92,7 +92,7 @@ export class ClientService {
             this.startStatsLogging()
             this.log.info(
                 `ClientService initialized with queue: ${queueConfig.requestsPerSecond} req/s, ` +
-                    `max concurrent: ${queueConfig.maxConcurrentRequests}, max retries: ${queueConfig.maxRetries}`
+                `max concurrent: ${queueConfig.maxConcurrentRequests}, max retries: ${queueConfig.maxRetries}`
             )
         } else {
             this.queue = null
@@ -235,36 +235,65 @@ export class ClientService {
     ): Promise<T[]> {
         const pageSize = this.pageSize // Paging size is driven by config
         const allItems: T[] = []
-        const limit = (baseParameters as any).limit ?? pageSize
-        const initialLimit = limit < pageSize ? limit : pageSize
+        // If limit is undefined, treat it as "no limit" and paginate through all results
+        const baseLimit = (baseParameters as any).limit
+        const hasExplicitLimit = baseLimit !== undefined && baseLimit !== null
+        const initialLimit = hasExplicitLimit && baseLimit < pageSize ? baseLimit : pageSize
 
-        // Make initial request to get first page
+        // Build initial params
         const initialParams = {
             ...baseParameters,
             limit: initialLimit,
             offset: 0,
         } as TRequestParams
+        // Remove limit if it was undefined to let API return all results on first page (if supported)
+        if (!hasExplicitLimit) {
+            delete (initialParams as any).limit
+        }
 
         const initialResponse = await this.execute<{ data: T[] }>(() => callFunction(initialParams), priority)
         const initialPage = initialResponse?.data || []
         allItems.push(...initialPage)
 
         // If the first page is smaller than pageSize, we already have all data
-        if (initialPage.length < pageSize || initialPage.length === limit) {
+        // Or if we have an explicit limit and we've reached it
+        if (initialPage.length < pageSize || (hasExplicitLimit && allItems.length >= baseLimit)) {
+            // If we have an explicit limit, trim to that limit
+            if (hasExplicitLimit && allItems.length > baseLimit) {
+                return allItems.slice(0, baseLimit)
+            }
             return allItems
         }
 
         // Start with offset after the first page
-        let offset = pageSize
+        let offset = initialPage.length
 
         // Continue fetching pages sequentially until no more data
         // We use sequential fetching to ensure we correctly detect when we've reached the end
         while (true) {
+            // Check if we've reached the explicit limit
+            if (hasExplicitLimit && allItems.length >= baseLimit) {
+                // Trim to the limit if we've exceeded it
+                if (allItems.length > baseLimit) {
+                    allItems.splice(baseLimit)
+                }
+                break
+            }
+
+            // Calculate how many items we still need
+            const remainingLimit = hasExplicitLimit ? baseLimit - allItems.length : undefined
+            const requestLimit = remainingLimit !== undefined && remainingLimit < pageSize ? remainingLimit : pageSize
+
+            // Build page params
             const pageParams = {
                 ...baseParameters,
-                limit: pageSize,
+                limit: requestLimit,
                 offset,
             } as TRequestParams
+            // Remove limit if it was undefined in base parameters
+            if (!hasExplicitLimit) {
+                delete (pageParams as any).limit
+            }
 
             const pageResponse = await this.execute<{ data: T[] }>(() => callFunction(pageParams), priority)
             const pageData = pageResponse?.data || []
@@ -276,13 +305,18 @@ export class ClientService {
 
             allItems.push(...pageData)
 
-            // If the page has fewer items than pageSize, it's the last page
-            if (pageData.length < pageSize) {
+            // If the page has fewer items than requested, it's the last page
+            if (pageData.length < requestLimit) {
                 break
             }
 
             // Move to next page
-            offset += pageSize
+            offset += requestLimit
+        }
+
+        // Final trim to explicit limit if we have one
+        if (hasExplicitLimit && allItems.length > baseLimit) {
+            allItems.splice(baseLimit)
         }
 
         return allItems
@@ -387,9 +421,9 @@ export class ClientService {
             if (stats.queueLength > 0 || stats.activeRequests > 0) {
                 this.log.debug(
                     `Queue Stats: ${stats.activeRequests} active, ${stats.queueLength} queued, ` +
-                        `${stats.totalProcessed} processed, ${stats.totalFailed} failed, ` +
-                        `avg wait: ${stats.averageWaitTime.toFixed(0)}ms, ` +
-                        `avg process: ${stats.averageProcessingTime.toFixed(0)}ms`
+                    `${stats.totalProcessed} processed, ${stats.totalFailed} failed, ` +
+                    `avg wait: ${stats.averageWaitTime.toFixed(0)}ms, ` +
+                    `avg process: ${stats.averageProcessingTime.toFixed(0)}ms`
                 )
             }
         }, STATS_LOGGING_INTERVAL_MS)
