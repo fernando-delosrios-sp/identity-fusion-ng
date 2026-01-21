@@ -22,6 +22,7 @@
         "includeIdentities": true,
         "identityScopeQuery": "*",
         "correlateOnAggregation": true,
+        "maxHistoryMessages": 10,
         "attributeMerge": "first",
         "enableQueue": true,
         "enableRetry": true,
@@ -205,8 +206,16 @@
                 {
                     "type": "section",
                     "sectionTitle": "Processing Control",
-                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.<br><br>Enable <strong>Force attribute refresh on each aggregation?</strong> to force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified.",
+                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.<br><br>Enable <strong>Force attribute refresh on each aggregation?</strong> to force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified.<br><br>Use <strong>Maximum history messages</strong> to limit how many history entries are retained per Fusion account. Older entries are discarded when the limit is exceeded.",
                     "items": [
+                        {
+                            "key": "maxHistoryMessages",
+                            "label": "Maximum history messages",
+                            "type": "number",
+                            "required": false,
+                            "min": "1",
+                            "helpKey": "Maximum number of history messages to retain per Fusion account. Older entries are discarded when the limit is exceeded"
+                        },
                         {
                             "key": "deleteEmpty",
                             "label": "Delete accounts with no authoritative accounts left?",
@@ -222,18 +231,18 @@
                             "helpKey": "Attempt to automatically correlate new or previously missing source accounts during each aggregation cycle"
                         },
                         {
-                            "key": "resetProcessingFlag",
-                            "label": "Reset processing flag in case of unfinished processing?",
-                            "type": "toggle",
-                            "required": false,
-                            "helpKey": "Clear any stuck processing state from a prior, incomplete run so that processing can safely restart"
-                        },
-                        {
                             "key": "forceAttributeRefresh",
                             "label": "Force attribute refresh on each aggregation?",
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified"
+                        },
+                        {
+                            "key": "resetProcessingFlag",
+                            "label": "Reset processing flag in case of unfinished processing?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Clear any stuck processing state from a prior, incomplete run so that processing can safely restart"
                         }
                     ]
                 }

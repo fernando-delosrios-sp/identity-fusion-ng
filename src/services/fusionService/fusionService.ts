@@ -36,6 +36,7 @@ export class FusionService {
     private readonly correlateOnAggregation: boolean
     private readonly reportAttributes: string[]
     private readonly urlContext: UrlContext
+    private readonly deleteEmpty: boolean
     public readonly fusionOwnerIsGlobalReviewer: boolean
     public readonly fusionReportOnAggregation: boolean
     public newManagedAccountsCount: number = 0
@@ -56,6 +57,7 @@ export class FusionService {
         private schemas: SchemaService,
         commandType?: StandardCommand
     ) {
+        FusionAccount.configure(config)
         this.reset = config.reset
         this.correlateOnAggregation = config.correlateOnAggregation
         this.fusionOwnerIsGlobalReviewer = config.fusionOwnerIsGlobalReviewer ?? false
@@ -63,6 +65,7 @@ export class FusionService {
         this.reportAttributes = config.fusionFormAttributes ?? []
         this.urlContext = createUrlContext(config.baseurl)
         this.commandType = commandType
+        this.deleteEmpty = config.deleteEmpty
     }
 
     // ------------------------------------------------------------------------
@@ -147,7 +150,7 @@ export class FusionService {
             `Fusion account found for ${account.nativeIdentity}. Should not process Fusion accounts more than once.`
         )
 
-        const fusionAccount = FusionAccount.fromFusionAccount(this.config, account)
+        const fusionAccount = FusionAccount.fromFusionAccount(account)
         const key = this.attributes.getSimpleKey(fusionAccount)
         fusionAccount.setKey(key)
 
@@ -230,7 +233,7 @@ export class FusionService {
         const identityId = identity.id
 
         if (!this.fusionIdentityMap.has(identityId)) {
-            const fusionAccount = FusionAccount.fromIdentity(this.config, identity)
+            const fusionAccount = FusionAccount.fromIdentity(identity)
             fusionAccount.addIdentityLayer(identity)
 
             const managedAccountsMap = this.sources.managedAccountsById
@@ -294,7 +297,7 @@ export class FusionService {
 
         let fusionAccount: FusionAccount
         if (fusionDecision.newIdentity) {
-            fusionAccount = FusionAccount.fromFusionDecision(this.config, fusionDecision)
+            fusionAccount = FusionAccount.fromFusionDecision(fusionDecision)
         } else {
             fusionAccount = this.fusionIdentityMap.get(fusionDecision.identityId!)!
             assert(fusionAccount, 'Fusion account not found')
@@ -388,10 +391,18 @@ export class FusionService {
      * List all ISC accounts (fusion accounts and identity accounts)
      */
     public async listISCAccounts(): Promise<StdAccountListOutput[]> {
+        let fusionIdentities = Array.from(this.fusionIdentityMap.values())
+        let fusionAccounts = Array.from(this.fusionAccountMap.values())
+        if (this.deleteEmpty && this.commandType === StandardCommand.StdAccountList) {
+            fusionIdentities = fusionIdentities.filter((x) => !x.isOrphan())
+            fusionAccounts = fusionAccounts.filter((x) => !x.isOrphan())
+        }
+
         const accounts = [
-            ...Array.from(this.fusionAccountMap.values()),
-            ...Array.from(this.fusionIdentityMap.values()),
+            ...fusionAccounts,
+            ...fusionIdentities,
         ]
+
         return await Promise.all(accounts.map((x) => this.getISCAccount(x)))
     }
 
@@ -413,7 +424,7 @@ export class FusionService {
      * Pre-process a managed account before processing or analysis
      */
     private async preProcessManagedAccount(account: Account): Promise<FusionAccount> {
-        const fusionAccount = FusionAccount.fromManagedAccount(this.config, account)
+        const fusionAccount = FusionAccount.fromManagedAccount(account)
 
         const managedAccountsMap = this.sources.managedAccountsById
         assert(managedAccountsMap, 'Managed accounts have not been loaded')

@@ -2,11 +2,9 @@
 - Implement appropriate exception handling
 - Implement external logging option
 - Improve logging
-- Review account correlation processing
-- Implement max history messages
-- Implement Delete accounts with no authoritative accounts left
 - Implement Reset processing flag in case of unfinished processing?
 - Rethink source account filter
 - Consider enabled/disabled switch for card options
 - Only fetch relevant identity attributes
 - Implement performance logging (report???)
+- Fix reports

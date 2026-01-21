@@ -16,6 +16,11 @@ type AttributeBag = {
 
 // TODO: Limit the size of the history array
 export class FusionAccount {
+    private static config?: FusionConfig
+
+    public static configure(config: FusionConfig): void {
+        FusionAccount.config = config
+    }
     // ============================================================================
     // Private Fields - All state is encapsulated
     // ============================================================================
@@ -67,33 +72,29 @@ export class FusionAccount {
 
     // Read-only configuration (set in constructor)
     private readonly sourceConfigs: SourceConfig[]
-    private readonly cloudDisplayName: string
     private readonly fusionAccountRefreshThresholdInSeconds: number
+    private readonly maxHistoryMessages: number
 
     // ============================================================================
     // Construction
     // ============================================================================
 
-    private constructor(
-        sourceConfigs: SourceConfig[],
-        cloudDisplayName: string,
-        fusionAccountRefreshThresholdInSeconds: number
-    ) {
-        this.sourceConfigs = sourceConfigs
-        this.cloudDisplayName = cloudDisplayName
-        this.fusionAccountRefreshThresholdInSeconds = fusionAccountRefreshThresholdInSeconds
+    private constructor() {
+        const config = FusionAccount.config
+        if (!config) {
+            throw new Error('FusionAccount is not configured. Call FusionAccount.configure(config) first.')
+        }
+        this.sourceConfigs = config.sources
+        this.fusionAccountRefreshThresholdInSeconds = config.fusionAccountRefreshThresholdInSeconds
+        this.maxHistoryMessages = config.maxHistoryMessages
     }
 
     // ============================================================================
     // Factory Methods - Must be first to ensure proper initialization order
     // ============================================================================
 
-    public static fromFusionAccount(config: FusionConfig, account: Account): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName ?? '',
-            config.fusionAccountRefreshThresholdInSeconds
-        )
+    public static fromFusionAccount(account: Account): FusionAccount {
+        const fusionAccount = new FusionAccount()
         // The ISC Account "id" (stable identifier for the account object)
         fusionAccount._nativeIdentity = account.nativeIdentity as string
         fusionAccount._name = account.name ?? undefined
@@ -108,7 +109,7 @@ export class FusionAccount {
         fusionAccount._attributeBag.previous[COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE] = account.uuid!
         fusionAccount._attributeBag.current = { ...(account.attributes ?? {}) }
         fusionAccount._identityId = account.identityId ?? undefined
-        fusionAccount._sourceName = config.cloudDisplayName ?? ''
+        fusionAccount._sourceName = account.sourceName ?? ''
         if (account.uncorrelated) {
             fusionAccount.setUncorrelated()
         }
@@ -120,12 +121,8 @@ export class FusionAccount {
         return fusionAccount
     }
 
-    public static fromIdentity(config: FusionConfig, identity: IdentityDocument): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName,
-            config.fusionAccountRefreshThresholdInSeconds
-        )
+    public static fromIdentity(identity: IdentityDocument): FusionAccount {
+        const fusionAccount = new FusionAccount()
 
         fusionAccount._type = 'identity'
         fusionAccount._name = identity.attributes?.displayName ?? identity.name
@@ -140,12 +137,8 @@ export class FusionAccount {
         return fusionAccount
     }
 
-    public static fromManagedAccount(config: FusionConfig, account: Account): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName,
-            config.fusionAccountRefreshThresholdInSeconds
-        )
+    public static fromManagedAccount(account: Account): FusionAccount {
+        const fusionAccount = new FusionAccount()
 
         fusionAccount._type = 'managed'
         fusionAccount._needsRefresh = true
@@ -164,12 +157,8 @@ export class FusionAccount {
         return fusionAccount
     }
 
-    public static fromFusionDecision(config: FusionConfig, decision: FusionDecision): FusionAccount {
-        const fusionAccount = new FusionAccount(
-            config.sources,
-            config.cloudDisplayName,
-            config.fusionAccountRefreshThresholdInSeconds
-        )
+    public static fromFusionDecision(decision: FusionDecision): FusionAccount {
+        const fusionAccount = new FusionAccount()
 
         fusionAccount._type = 'decision'
         fusionAccount._needsRefresh = true
@@ -540,10 +529,16 @@ export class FusionAccount {
         const now = new Date().toISOString().split('T')[0]
         const datedMessage = `[${now}] ${message}`
         this._history.push(datedMessage)
+
+        // Enforce maximum history size by keeping only the most recent entries
+        if (this._history.length > this.maxHistoryMessages) {
+            this._history = this._history.slice(-this.maxHistoryMessages)
+        }
     }
 
     importHistory(history: string[]) {
-        this._history = history
+        // When importing history (from existing ISC account), respect the max history limit
+        this._history = history.slice(-this.maxHistoryMessages)
     }
 
     /**

@@ -23,10 +23,9 @@ export const FUSION_REVIEW_TEMPLATE = `
             background: linear-gradient(180deg, #f3f6fb 0%, #ffffff 100%);
         }
 
-        /* Responsive stacking for main + match columns */
+        /* Responsive stacking for main columns only (keep match row horizontal) */
         @media only screen and (max-width:600px) {
-            .main-col,
-            .match-col {
+            .main-col {
                 display: block !important;
                 width: 100% !important;
                 max-width: 100% !important;
@@ -70,10 +69,11 @@ export const FUSION_REVIEW_TEMPLATE = `
 
                                         {{#each accounts}}
                                         <div style="margin-bottom:28px; border:1px solid #e6ebf5; border-radius:14px; padding:18px; background:#ffffff; box-shadow:0 10px 24px rgba(16,24,40,0.08);">
-                                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
-                                                <tr>
+                                            <div style="width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                                                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; width:auto; min-width:100%;">
+                                                    <tr>
                                                     <!-- Left: duplicate account summary -->
-                                                    <td class="main-col" valign="top" width="40%" style="width:40%; vertical-align:top; padding:8px; border-right:1px solid #eef2f7;">
+                                                    <td class="main-col" valign="top" style="width:280px; min-width:280px; max-width:280px; vertical-align:top; padding:8px; border-right:1px solid #eef2f7;">
                                                         <div style="color:#0b5cab; font-size:18px; font-weight:800; margin:0 0 6px 0;">{{accountName}}</div>
                                                         <div style="font-size:12px; color:#5f6b7a; margin-bottom:10px;">
                                                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
@@ -110,26 +110,25 @@ export const FUSION_REVIEW_TEMPLATE = `
                                                     </td>
 
                                                     <!-- Right: matches (report-style) -->
-                                                    <td class="main-col" valign="top" width="60%" style="width:60%; vertical-align:top; padding:8px;">
+                                                    <td class="main-col" valign="top" style="vertical-align:top; padding:8px;">
                                                         {{#if matches}}
                                                         {{#if (gt matches.length 0)}}
-                                                        {{#each (chunk matches 2)}}
-                                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
-                                                            <tr>
-                                                                {{#each this}}
-                                                                <td class="match-col" valign="top" width="50%" style="width:50%; vertical-align:top; padding:4px;">
-                                                                    {{#if this}}
-                                                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; table-layout:fixed;">
+                                                        <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                                                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; margin-bottom:12px;">
+                                                                <tr>
+                                                                {{#each matches}}
+                                                                <td valign="top" width="280" style="width:280px; vertical-align:top; padding:4px;">
+                                                                    <table role="presentation" width="280" cellpadding="0" cellspacing="0" border="0" style="width:280px; border-collapse:collapse;">
                                                                         <tr>
-                                                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase; white-space:nowrap;">
+                                                                            <td colspan="4" style="font-weight:900; padding:6px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase; white-space:nowrap;">
                                                                                 Potential Matches
                                                                             </td>
                                                                         </tr>
                                                                         <tr>
-                                                                            <td colspan="4" style="padding:4px 8px;">
-                                                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2; word-break:break-word; overflow-wrap:break-word;">
+                                                                            <td colspan="4" style="padding:6px 8px;">
+                                                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.3; word-wrap:break-word;">
                                                                                     {{#if identityUrl}}
-                                                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline; word-break:break-word; overflow-wrap:break-word;">{{identityName}}</a>
+                                                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline; word-wrap:break-word;">{{identityName}}</a>
                                                                                     {{else}}
                                                                                     {{identityName}}
                                                                                     {{/if}}
@@ -138,29 +137,26 @@ export const FUSION_REVIEW_TEMPLATE = `
                                                                         </tr>
                                                                         {{#if scores}}
                                                                         <tr>
-                                                                            <th style="text-align:left; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Attribute</th>
-                                                                            <th style="text-align:left; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Algorithm</th>
-                                                                            <th style="text-align:right; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Score</th>
-                                                                            <th style="text-align:right; padding:4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Threshold</th>
+                                                                            <th width="90" style="width:90px; text-align:left; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Attribute</th>
+                                                                            <th width="110" style="width:110px; text-align:left; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Algorithm</th>
+                                                                            <th width="40" style="width:40px; text-align:right; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Score</th>
+                                                                            <th width="40" style="width:40px; text-align:right; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Threshold</th>
                                                                         </tr>
                                                                         {{#each scores}}
                                                                         <tr style="background:{{#if (isAverageScoreRow attribute algorithm)}}#e0f2fe{{else}}{{#if isMatch}}#f0fdf4{{else}}#fef2f2{{/if}}{{/if}};">
-                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900; white-space:nowrap;{{/if}}">{{attribute}}</td>
-                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{algorithmLabel algorithm}}</td>
-                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-weight:900; white-space:nowrap; font-size:11px;">{{score}}%</td>
-                                                                            <td style="padding:4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; white-space:nowrap; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{fusionScore}}%</td>
+                                                                            <td width="90" style="width:90px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; font-size:10px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{attribute}}</td>
+                                                                            <td width="110" style="width:110px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; font-size:10px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{algorithmLabel algorithm}}</td>
+                                                                            <td width="40" style="width:40px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-weight:900; font-size:10px;">{{formatPercent score}}%</td>
+                                                                            <td width="40" style="width:40px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-size:10px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{formatPercent fusionScore}}%</td>
                                                                         </tr>
                                                                         {{/each}}
                                                                         {{/if}}
                                                                     </table>
-                                                                    {{else}}
-                                                                    &nbsp;
-                                                                    {{/if}}
                                                                 </td>
                                                                 {{/each}}
-                                                            </tr>
-                                                        </table>
-                                                        {{/each}}
+                                                        </tr>
+                                                    </table>
+                                                </div>
                                                         {{else}}
                                                         <div style="color:#999; font-style:italic; padding:14px; background-color:#f8f9fa; border-radius:4px; text-align:center;">
                                                             No potential matches found for this account.
@@ -172,8 +168,9 @@ export const FUSION_REVIEW_TEMPLATE = `
                                                         </div>
                                                         {{/if}}
                                                     </td>
-                                                </tr>
-                                            </table>
+                                                    </tr>
+                                                </table>
+                                            </div>
                                         </div>
                                         {{/each}}
 
@@ -475,9 +472,9 @@ export const FUSION_REPORT_TEMPLATE = `
             color: #0f172a;
         }
 
-        /* Responsive stacking for the 3 match columns */
+        /* Responsive stacking for main columns only (keep match row horizontal) */
         @media only screen and (max-width:600px) {
-            .match-col {
+            .main-col {
                 display: block !important;
                 width: 100% !important;
                 max-width: 100% !important;
@@ -530,10 +527,11 @@ export const FUSION_REPORT_TEMPLATE = `
 
         {{#each accounts}}
         <div class="account-section" style="margin-bottom:28px; border:1px solid #e6ebf5; border-radius:14px; padding:18px; background:#ffffff; box-shadow:0 10px 24px rgba(16,24,40,0.08);">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:separate; border-spacing:0;">
-                <tr>
+            <div style="width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate; border-spacing:0; width:auto; min-width:100%;">
+                    <tr>
                     <!-- Left: duplicate account summary -->
-                    <td style="width:24%; vertical-align:top; padding-right:14px; border-right:1px solid #eef2f7;">
+                    <td style="width:280px; min-width:280px; max-width:280px; vertical-align:top; padding-right:14px; border-right:1px solid #eef2f7;">
                         <div style="color:#0b5cab; font-size:18px; font-weight:800; margin:0 0 6px 0;">{{accountName}}</div>
                         <div style="font-size:12px; color:#5f6b7a; margin-bottom:10px;">
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
@@ -570,26 +568,25 @@ export const FUSION_REPORT_TEMPLATE = `
                     </td>
 
                     <!-- Right: candidates horizontally -->
-                    <td style="width:76%; vertical-align:top; padding-left:14px;">
+                    <td style="vertical-align:top; padding-left:14px;">
                         {{#if matches}}
                         {{#if (gt matches.length 0)}}
-                        {{#each (chunk matches 3)}}
-                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; margin-bottom:12px;">
-                            <tr>
-                                {{#each this}}
-                                <td class="match-col" valign="top" width="33.33%" style="width:33.33%; vertical-align:top; padding:6px;">
-                                    {{#if this}}
-                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse; table-layout:fixed;">
+                        <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; margin-bottom:12px;">
+                                <tr>
+                                {{#each matches}}
+                                <td valign="top" width="280" style="width:280px; vertical-align:top; padding:6px;">
+                                    <table role="presentation" width="280" cellpadding="0" cellspacing="0" border="0" style="width:280px; border-collapse:collapse;">
                                         <tr>
-                                            <td colspan="4" style="font-weight:900; padding:4px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase; white-space:nowrap;">
+                                            <td colspan="4" style="font-weight:900; padding:6px 8px; border-bottom:1px solid #e0e0e0; color:#0b5cab; font-size:12px; letter-spacing:0.35px; text-transform:uppercase; white-space:nowrap;">
                                                 Potential Matches
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td colspan="4" style="padding:4px 8px;">
-                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.2; word-break:break-word; overflow-wrap:break-word;">
+                                            <td colspan="4" style="padding:6px 8px;">
+                                                <div style="font-size:14px; font-weight:800; color:#0b5cab; line-height:1.3; word-wrap:break-word;">
                                                     {{#if identityUrl}}
-                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline; word-break:break-word; overflow-wrap:break-word;">{{identityName}}</a>
+                                                    <a href="{{identityUrl}}" style="color:#0b5cab; text-decoration:underline; word-wrap:break-word;">{{identityName}}</a>
                                                     {{else}}
                                                     {{identityName}}
                                                     {{/if}}
@@ -598,29 +595,26 @@ export const FUSION_REPORT_TEMPLATE = `
                                         </tr>
                                         {{#if scores}}
                                         <tr>
-                                            <th style="text-align:left; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Attribute</th>
-                                            <th style="text-align:left; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Algorithm</th>
-                                            <th style="text-align:right; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Score</th>
-                                            <th style="text-align:right; padding:6px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; word-break:break-word; font-size:11px;">Threshold</th>
+                                            <th width="90" style="width:90px; text-align:left; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Attribute</th>
+                                            <th width="110" style="width:110px; text-align:left; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Algorithm</th>
+                                            <th width="40" style="width:40px; text-align:right; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Score</th>
+                                            <th width="40" style="width:40px; text-align:right; padding:6px 4px; border:1px solid #eef2f7; background:#f6f8ff; color:#5f6b7a; font-size:10px; font-weight:600;">Threshold</th>
                                         </tr>
                                         {{#each scores}}
                                         <tr style="background:{{#if (isAverageScoreRow attribute algorithm)}}#e0f2fe{{else}}{{#if isMatch}}#f0fdf4{{else}}#fef2f2{{/if}}{{/if}};">
-                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900; white-space:nowrap;{{/if}}">{{attribute}}</td>
-                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; word-break:break-word; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{algorithmLabel algorithm}}</td>
-                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-weight:900; white-space:nowrap; font-size:11px;">{{score}}%</td>
-                                            <td style="padding:6px; border:1px solid #eef2f7; color:#0f172a; text-align:right; white-space:nowrap; font-size:11px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{fusionScore}}%</td>
+                                            <td width="90" style="width:90px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; font-size:10px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{attribute}}</td>
+                                            <td width="110" style="width:110px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; font-size:10px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{algorithmLabel algorithm}}</td>
+                                            <td width="40" style="width:40px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-weight:900; font-size:10px;">{{formatPercent score}}%</td>
+                                            <td width="40" style="width:40px; padding:6px 4px; border:1px solid #eef2f7; color:#0f172a; text-align:right; font-size:10px; {{#if (isAverageScoreRow attribute algorithm)}}font-weight:900;{{/if}}">{{formatPercent fusionScore}}%</td>
                                         </tr>
                                         {{/each}}
                                         {{/if}}
                                     </table>
-                                    {{else}}
-                                    &nbsp;
-                                    {{/if}}
                                 </td>
                                 {{/each}}
-                            </tr>
-                        </table>
-                        {{/each}}
+                                </tr>
+                            </table>
+                        </div>
                         {{else}}
                         <div style="color:#999; font-style:italic; padding:20px; background-color:#f8f9fa; border-radius:4px; text-align:center;">No potential matches found for this account.</div>
                         {{/if}}
@@ -628,8 +622,9 @@ export const FUSION_REPORT_TEMPLATE = `
                         <div style="color:#999; font-style:italic; padding:20px; background-color:#f8f9fa; border-radius:4px; text-align:center;">No potential matches found for this account.</div>
                         {{/if}}
                     </td>
-                </tr>
-            </table>
+                    </tr>
+                </table>
+            </div>
         </div>
         {{/each}}
 
