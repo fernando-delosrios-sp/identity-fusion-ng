@@ -102,6 +102,7 @@ export interface ProcessingControlSection {
     correlateOnAggregation: boolean
     resetProcessingFlag: boolean
     forceAttributeRefresh: boolean
+    maxHistoryMessages: number
 }
 
 // Source Settings Menu

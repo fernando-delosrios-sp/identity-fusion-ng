@@ -120,6 +120,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
     config.forceAttributeRefresh = config.forceAttributeRefresh ?? false
+    config.maxHistoryMessages = config.maxHistoryMessages ?? 10
 
     // ============================================================================
     // Attribute Definition Settings defaults

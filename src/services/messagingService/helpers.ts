@@ -11,11 +11,11 @@ import { FUSION_REVIEW_TEMPLATE, FUSION_REPORT_TEMPLATE } from '../../model/mess
  */
 export const registerHandlebarsHelpers = (): void => {
     const algorithmLabels: Record<string, string> = {
-        'name-matcher': 'Enhanced Name Matcher',
+        'name-matcher': 'Name Matcher',
         'jaro-winkler': 'Jaro-Winkler',
         dice: 'Dice',
         'double-metaphone': 'Double Metaphone',
-        custom: 'Custom Algorithm (from SaaS customizer)',
+        custom: 'Custom',
         average: 'Average Score',
     }
 
@@ -38,6 +38,21 @@ export const registerHandlebarsHelpers = (): void => {
         return scores
             .map((score) => `${score.attribute}: ${score.score}% (${score.isMatch ? 'Match' : 'No Match'})`)
             .join(', ')
+    })
+
+    // Format numeric percentages to 0 decimals
+    Handlebars.registerHelper('formatPercent', (value: any) => {
+        const num = typeof value === 'number' ? value : Number.parseFloat(String(value))
+        if (Number.isNaN(num)) return '0'
+        return String(Math.round(num))
+    })
+
+    // Simple numeric multiply helper (useful for width calculations)
+    Handlebars.registerHelper('multiply', (a: any, b: any) => {
+        const left = typeof a === 'number' ? a : Number.parseFloat(String(a))
+        const right = typeof b === 'number' ? b : Number.parseFloat(String(b))
+        if (Number.isNaN(left) || Number.isNaN(right)) return 0
+        return Math.round(left * right)
     })
 
     // Check if value exists
