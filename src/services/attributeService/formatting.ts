@@ -3,6 +3,7 @@ import velocityjs from 'velocityjs'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { Datefns } from '../../utils/dateUtils'
 import { logger } from '@sailpoint/connector-sdk'
+import { contextHelpers } from './contextHelpers'
 
 /**
  * Normalize string by transliterating and removing special characters
@@ -48,7 +49,7 @@ export const evaluateVelocityTemplate = (
     context: RenderContext,
     maxLength?: number
 ): string | undefined => {
-    const extendedContext: RenderContext = { ...context, Math, Date, Datefns }
+    const extendedContext: RenderContext = { ...context, ...contextHelpers }
     logger.debug(`Evaluating velocity template - expression: ${expression}`)
 
     const template = velocityjs.parse(expression)
