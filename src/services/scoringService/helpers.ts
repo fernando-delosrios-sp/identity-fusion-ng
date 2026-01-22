@@ -1,8 +1,8 @@
 import { doubleMetaphone } from 'double-metaphone'
 import { MatchingConfig } from '../../model/config'
 import { ScoreReport } from './types'
-import { jaroWinkler, diceCoefficient } from '../../utils/stringComparison'
-import { match as nameMatch } from '../../utils/nameMatching'
+import { jaroWinkler, diceCoefficient } from './stringComparison'
+import { match as nameMatch } from './nameMatching'
 
 // ============================================================================
 // Helper Functions

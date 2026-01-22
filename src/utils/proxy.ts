@@ -24,6 +24,19 @@ const unwrapData = (obj: any): any => {
     return obj
 }
 
+// Helper function to check if object is valid (not empty)
+const isValidObject = (obj: any): boolean => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+        return false
+    }
+    // Check if object has any keys
+    const keys = Object.keys(obj)
+    if (keys.length === 0) {
+        return false
+    }
+    return true
+}
+
 // Proxy Client Mode: Forward requests to external connector
 export const isProxyMode = (config: FusionConfig): boolean => {
     const proxyEnabled = config.proxyEnabled ?? false
@@ -69,13 +82,21 @@ export const proxy: CommandHandler = async (context, input, res) => {
             input,
             config: externalConfig,
         }
-        const response = await fetch(proxyUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        })
+        let response: Response
+        try {
+            response = await fetch(proxyUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            })
+        } catch (fetchError) {
+            logger.error(`Proxy fetch failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown fetch error'}`)
+            throw new ConnectorError(
+                `Failed to connect to proxy server at ${proxyUrl}: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`
+            )
+        }
 
         // Check if response is successful
         if (!response.ok) {
@@ -99,27 +120,63 @@ export const proxy: CommandHandler = async (context, input, res) => {
         const lines = data.split('\n').filter(line => line.trim().length > 0)
         logger.debug(`Processing ${lines.length} non-empty lines from proxy response`)
 
+        // Handle case with no non-empty lines
+        if (lines.length === 0) {
+            logger.debug('Proxy received response with no valid content')
+            return
+        }
+
         // Check if response is a single JSON array instead of NDJSON
         if (lines.length === 1) {
             try {
                 let parsed = JSON.parse(lines[0])
 
+                // Handle null/undefined responses
+                if (parsed === null || parsed === undefined) {
+                    logger.debug('Proxy received null/undefined response')
+                    return
+                }
+
                 // Unwrap any {data:{}} structure
-                logger.debug(`Before unwrap - parsed keys: ${Object.keys(parsed).join(', ')}`)
+                if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    logger.debug(`Before unwrap - parsed keys: ${Object.keys(parsed).join(', ')}`)
+                }
                 parsed = unwrapData(parsed)
-                logger.debug(`After unwrap - parsed keys: ${Object.keys(parsed).join(', ')}`)
+                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+                    logger.debug(`After unwrap - parsed keys: ${Object.keys(parsed).join(', ')}`)
+                }
 
                 // If it's an array, send each item
                 if (Array.isArray(parsed)) {
+                    // Handle empty array
+                    if (parsed.length === 0) {
+                        logger.debug('Proxy received empty array')
+                        return
+                    }
                     logger.info(`Proxy received JSON array with ${parsed.length} items`)
+                    let sentCount = 0
                     for (const item of parsed) {
                         const unwrappedItem = unwrapData(item)
+
+                        // Skip empty objects
+                        if (!isValidObject(unwrappedItem)) {
+                            logger.debug(`Skipping empty object in array`)
+                            continue
+                        }
+
                         logger.debug(`Sending item: ${JSON.stringify(unwrappedItem).substring(0, 200)}`)
                         res.send(unwrappedItem)
+                        sentCount++
                     }
+                    logger.info(`Proxy sent ${sentCount} valid objects from array`)
                     return
                 } else {
-                    // Single object - send the data directly
+                    // Single object - skip if empty or invalid
+                    if (!isValidObject(parsed)) {
+                        logger.debug(`Skipping empty/invalid single object`)
+                        return
+                    }
+
                     logger.debug(`Sending single object: ${JSON.stringify(parsed).substring(0, 200)}`)
                     res.send(parsed)
                     return
@@ -138,30 +195,13 @@ export const proxy: CommandHandler = async (context, input, res) => {
                 // Unwrap any {data:{}} structure
                 parsed = unwrapData(parsed)
 
-                // Validate that it's a proper object
-                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                    logger.warn(`Skipping non-object: ${JSON.stringify(parsed)}`)
+                // Skip empty objects
+                if (!isValidObject(parsed)) {
+                    logger.debug(`Skipping empty NDJSON object`)
                     continue
                 }
 
-                // Validate required fields for account objects
-                // Note: Different command types have different requirements
-                if (context.commandType === 'std:account:list' || context.commandType === 'std:account:read') {
-                    if (!parsed.identity) {
-                        logger.error(`Object missing 'identity' field: ${JSON.stringify(parsed).substring(0, 200)}`)
-                        throw new ConnectorError(`Proxy response object missing required 'identity' field`)
-                    }
-                    if (!parsed.uuid) {
-                        logger.error(`Object missing 'uuid' field: ${JSON.stringify(parsed).substring(0, 200)}`)
-                        throw new ConnectorError(`Proxy response object missing required 'uuid' field`)
-                    }
-                    if (!parsed.attributes || typeof parsed.attributes !== 'object') {
-                        logger.error(`Object has invalid 'attributes' field: ${JSON.stringify(parsed).substring(0, 200)}`)
-                        throw new ConnectorError(`Proxy response object missing or invalid 'attributes' field`)
-                    }
-                }
-
-                logger.debug(`Sending valid object: ${JSON.stringify(parsed).substring(0, 200)}`)
+                logger.debug(`Sending object: ${JSON.stringify(parsed).substring(0, 200)}`)
                 res.send(parsed)
                 validObjectCount++
             } catch (parseError) {

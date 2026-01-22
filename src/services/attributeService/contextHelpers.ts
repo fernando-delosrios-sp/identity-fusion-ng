@@ -1,7 +1,7 @@
-import { Datefns } from '../../utils/dateUtils'
+import { Datefns } from './dateUtils'
 import parse from 'any-date-parser'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
-import { State, City } from '../../utils/geoData'
+import { State, City } from './geoData'
 // @ts-expect-error - no types available
 import parseAddressString from 'parse-address-string'
 import { capitalizeFirst } from '../../utils'

@@ -26,7 +26,7 @@ import { accountEnable } from './operations/accountEnable'
 import { accountDisable } from './operations/accountDisable'
 import { entitlementList } from './operations/entitlementList'
 import { accountDiscoverSchema } from './operations/accountDiscoverSchema'
-import { isProxyMode, proxy } from './utils/proxy'
+import { isProxyMode, isProxyService, proxy } from './utils/proxy'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -63,9 +63,10 @@ export const connector = async () => {
     const stdAccountList: StdAccountListHandler = async (context, input, res): Promise<void> => {
         const isCustom = context.accountList !== undefined
         const isProxy = isProxyMode(config)
+        const isProxyServer = isProxyService(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
-        const interval = setInterval(() => {
+        const interval = isProxyServer ? undefined : setInterval(() => {
             res.keepAlive()
         }, config.processingWait)
 

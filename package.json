@@ -8,6 +8,8 @@
         "build": "npx ncc build ./src/index.ts -o ./dist -m -C",
         "start": "spcx run dist/index.js $PORT",
         "debug": "spcx run dist/index.js",
+        "proxy": "concurrently \"spcx run dist/index.js\" \"wait-on tcp:3000 && npx tmole 3000\"",
+        "mole": "npx tmole 3000",
         "dev": "cross-env NODE_OPTIONS=--enable-source-maps spcx run dist/index.js",
         "prettier": "npx prettier --write .",
         "prepack-zip": "npm ci && npm run build",
@@ -36,6 +38,7 @@
         "@types/node": "^20.11.17",
         "@types/uuid": "^9.0.8",
         "@vercel/ncc": "^0.38.1",
+        "concurrently": "^9.2.1",
         "cross-env": "7.0.3",
         "dotenv": "^16.6.1",
         "eslint": "^9.9.0",
@@ -46,7 +49,8 @@
         "ts-jest": "^29.4.6",
         "tunnelmole": "^2.4.0",
         "typescript": "^5.3.3",
-        "typescript-eslint": "^8.2.0"
+        "typescript-eslint": "^8.2.0",
+        "wait-on": "^9.0.3"
     },
     "prettier": {
         "printWidth": 120,
