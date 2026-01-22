@@ -16,7 +16,7 @@
     },
     "private": true,
     "dependencies": {
-        "@sailpoint/connector-sdk": "^1.1.36",
+        "@sailpoint/connector-sdk": "1.1.36",
         "any-date-parser": "^2.2.3",
         "axios": "^1.6.8",
         "double-metaphone": "^2.0.1",
