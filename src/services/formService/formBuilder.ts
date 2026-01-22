@@ -54,6 +54,7 @@ export const buildFormInput = (
 
     // Candidate attributes and scores (flat keys for form elements)
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
         const candidateId = candidate.id
 
         if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -65,8 +66,9 @@ export const buildFormInput = (
         }
 
         // Add score inputs
-        if (candidate.scores && candidate.scores.length > 0) {
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidate.scores.forEach((score: any) => {
+                if (!score || typeof score !== 'object') return
                 if (score.type && score.value !== undefined) {
                     formInput[`${candidateId}.${score.type}.score`] = String(score.value)
                     if (score.threshold !== undefined) {
@@ -207,6 +209,7 @@ export const buildFormFields = (
 
     // Candidate sections: one per candidate
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id || !candidate.name) return
         const candidateId = candidate.id
         const candidateElements: FormElementV2025[] = []
 
@@ -228,9 +231,10 @@ export const buildFormFields = (
         }
 
         // Add score section if scores exist
-        if (candidate.scores && candidate.scores.length > 0) {
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             const scoreElements: FormElementV2025[] = []
             candidate.scores.forEach((score: any) => {
+                if (!score || typeof score !== 'object') return
                 if (score.type && score.value !== undefined) {
                     scoreElements.push({
                         id: `${candidateId}.${score.type}.score`,
@@ -290,10 +294,11 @@ export const buildFormFields = (
 
         // Add fusion score summary at the end (textarea, prefilled).
         // Using `default` ensures it renders; `description` alone may not show in the UI.
-        if (candidate.scores && candidate.scores.length > 0) {
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             // ScoreReport shape: { attribute, algorithm, fusionScore (threshold), mandatory, score, isMatch, comment? }
             // Be defensive and also accept older shapes (value/threshold/type) if present.
             const scoreValues = candidate.scores
+                .filter((s: any) => s && typeof s === 'object')
                 .map((s: any) => Number(s?.score ?? s?.value))
                 .filter((n: any) => Number.isFinite(n)) as number[]
             const averageScore =
@@ -302,7 +307,7 @@ export const buildFormFields = (
                     : 'N/A'
 
             const factorLines = candidate.scores
-                .filter((s: any) => s && (s.score !== undefined || s.value !== undefined))
+                .filter((s: any) => s && typeof s === 'object' && (s.score !== undefined || s.value !== undefined))
                 .map((s: any) => {
                     const name = String(s.attribute ?? s.type ?? 'score')
                     const algorithmKey = String(s.algorithm ?? 'unknown')
@@ -371,6 +376,11 @@ export const buildFormFields = (
 export const buildFormConditions = (candidates: Candidate[], fusionFormAttributes?: string[]): any[] => {
     const formConditions: any[] = []
 
+    // Validate inputs to prevent malformed conditions
+    if (!candidates || !Array.isArray(candidates)) {
+        return formConditions
+    }
+
     // Disable all TEXT fields in the top section (new identity attributes)
     // Use a condition that's always true by checking newIdentity against itself
     if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -401,6 +411,7 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
 
     // Disable all TEXT fields for candidate attributes and scores
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
         const candidateId = candidate.id
 
         // Disable candidate attribute fields
@@ -433,8 +444,9 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
 
         // Disable score fields
         // Use a condition that's always true by checking newIdentity against an impossible value
-        if (candidate.scores && candidate.scores.length > 0) {
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidate.scores.forEach((score: any) => {
+                if (!score || typeof score !== 'object') return
                 if (score.type && score.value !== undefined) {
                     formConditions.push({
                         ruleOperator: 'AND',
@@ -511,6 +523,7 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
     // - newIdentity is true, OR
     // - identities is not equal to the candidate's displayName (form condition evaluation uses displayName instead of ID)
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id || !candidate.name) return
         formConditions.push({
             ruleOperator: 'OR',
             rules: [
@@ -616,6 +629,7 @@ export const buildFormInputs = (
 
     // Candidate attributes and scores
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
         const candidateId = candidate.id
 
         if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -632,8 +646,9 @@ export const buildFormInputs = (
         }
 
         // Add score inputs
-        if (candidate.scores && candidate.scores.length > 0) {
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidate.scores.forEach((score: any) => {
+                if (!score || typeof score !== 'object') return
                 if (score.type && score.value !== undefined) {
                     formInputs.push({
                         id: `${candidateId}.${score.type}.score`,

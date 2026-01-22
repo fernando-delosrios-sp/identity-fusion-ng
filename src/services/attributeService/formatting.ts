@@ -1,7 +1,7 @@
 import { transliterate } from 'transliteration'
 import velocityjs from 'velocityjs'
 import { RenderContext } from 'velocityjs/dist/src/type'
-import * as Datefns from 'date-fns'
+import { Datefns } from '../../utils/dateUtils'
 import { logger } from '@sailpoint/connector-sdk'
 
 /**
@@ -108,7 +108,7 @@ const truncateWithCounterPreserved = (
     const originalCounter = context.counter!
     const originalCounterLength = originalCounter.toString().length
     const availableLength = maxLength - originalCounterLength
-    
+
     if (availableLength < 0) {
         logger.error(
             `Maximum length ${maxLength} is less than counter length ${originalCounterLength} for expression: ${expression}`

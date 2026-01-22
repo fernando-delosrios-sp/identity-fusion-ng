@@ -13,3 +13,5 @@ export const ALGORITHM_LABELS: Record<string, string> = {
     custom: 'Custom Algorithm (from SaaS customizer)',
     average: 'Average Score',
 }
+
+export const MAX_CANDIDATES_FOR_FORM = 15

@@ -1,10 +1,8 @@
-import * as stringComparison from 'string-comparison'
 import { doubleMetaphone } from 'double-metaphone'
-import * as nameMatch from 'name-match'
 import { MatchingConfig } from '../../model/config'
 import { ScoreReport } from './types'
-
-const { jaroWinkler, diceCoefficient } = stringComparison.default
+import { jaroWinkler, diceCoefficient } from '../../utils/stringComparison'
+import { match as nameMatch } from '../../utils/nameMatching'
 
 // ============================================================================
 // Helper Functions
@@ -83,8 +81,8 @@ export const scoreNameMatcher = (
     identityAttribute: string,
     matching: MatchingConfig
 ): ScoreReport => {
-    const similarity = nameMatch.match(accountAttribute, identityAttribute)
-    // name-match returns a normalized score (0-1), convert to 0-100
+    const similarity = nameMatch(accountAttribute, identityAttribute)
+    // nameMatch returns a normalized score (0-1), convert to 0-100
     const score = Math.round(similarity * 100)
 
     const threshold = matching.fusionScore ?? 0
