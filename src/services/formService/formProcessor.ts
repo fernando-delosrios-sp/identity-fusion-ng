@@ -116,7 +116,13 @@ export const createFusionDecision = (
     }
 
     const isNewIdentity = formData?.newIdentity ?? true
-    const existingIdentity = isNewIdentity ? undefined : formData?.identities
+    // SELECT elements with dataSource return arrays, extract the first element
+    const identitiesValue = formData?.identities
+    const existingIdentity = isNewIdentity
+        ? undefined
+        : Array.isArray(identitiesValue)
+            ? identitiesValue[0]
+            : identitiesValue
 
     const reviewerIdentityId = recipients[0].id
     if (!reviewerIdentityId) {

@@ -39,9 +39,8 @@ export const buildFormInput = (
     formInput.account = accountIdentifier
     formInput.source = fusionAccount.sourceName
     // Defaults for interactive decision fields
-    // Keep as string to align with definition input type constraints.
+    // Keep as string for newIdentity to align with TOGGLE element.
     formInput.newIdentity = 'false'
-    formInput.identities = ''
 
     // New identity attributes (flat keys for form elements)
     if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -521,7 +520,7 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
 
     // For each candidate, create a condition that hides its section when:
     // - newIdentity is true, OR
-    // - identities is not equal to the candidate's displayName (form condition evaluation uses displayName instead of ID)
+    // - identities is not equal to the candidate's displayName (form conditions use the label, not the value)
     candidates.forEach((candidate) => {
         if (!candidate || !candidate.id || !candidate.name) return
         formConditions.push({
@@ -600,17 +599,12 @@ export const buildFormInputs = (
 
     // Decision inputs (bound to interactive elements)
     // NOTE: SDK only supports STRING / ARRAY for definition inputs. Toggle still binds to this key.
+    // SELECT elements with dataSource don't need an input definition - they populate dynamically.
     formInputs.push({
         id: 'newIdentity',
         type: 'STRING',
         label: 'newIdentity',
         description: 'false',
-    })
-    formInputs.push({
-        id: 'identities',
-        type: 'STRING',
-        label: 'identities',
-        description: '',
     })
 
     // New identity attributes
