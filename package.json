@@ -6,7 +6,7 @@
         "clean": "shx rm -rf ./dist",
         "prebuild": "npm run clean",
         "build": "npx ncc build ./src/index.ts -o ./dist -m -C",
-        "start": "export NODE_OPTIONS=--max-old-space-size=4096 && npm i @sailpoint/connector-sdk && spcx run dist/index.js",
+        "start": "spcx run dist/index.js",
         "debug": "spcx run dist/index.js",
         "dev": "cross-env NODE_OPTIONS=--enable-source-maps spcx run dist/index.js",
         "prettier": "npx prettier --write .",
@@ -16,7 +16,7 @@
     },
     "private": true,
     "dependencies": {
-        "@sailpoint/connector-sdk": "1.1.36",
+        "@sailpoint/connector-sdk": "^1.1.36",
         "any-date-parser": "^2.2.3",
         "axios": "^1.6.8",
         "double-metaphone": "^2.0.1",
