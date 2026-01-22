@@ -2,6 +2,7 @@ import { AccountsApiUpdateAccountRequest, IdentityDocument, Search } from 'sailp
 import { FusionConfig } from '../model/config'
 import { ClientService } from './clientService'
 import { LogService } from './logService'
+import { SchemaService } from './schemaService'
 import { assert } from '../utils/assert'
 import { FusionAccount } from '../model/account'
 
@@ -16,6 +17,7 @@ export class IdentityService {
     private identitiesById: Map<string, IdentityDocument> = new Map()
     private readonly identityScopeQuery?: string
     private readonly includeIdentities: boolean
+    private relevantIdentityAttributes?: string[]
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -24,10 +26,58 @@ export class IdentityService {
     constructor(
         config: FusionConfig,
         private log: LogService,
-        private client: ClientService
+        private client: ClientService,
+        private schemas?: SchemaService
     ) {
         this.identityScopeQuery = config.identityScopeQuery
         this.includeIdentities = config.includeIdentities ?? true
+    }
+
+    // ------------------------------------------------------------------------
+    // Private Helper Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Build a list of relevant identity attributes based on schema
+     * Includes:
+     * - Essential attributes (id, name, etc.)
+     * - attributes.* entries for all schema attributes
+     */
+    private buildRelevantIdentityAttributes(): string[] {
+        const attributeSet = new Set<string>()
+
+        // Essential identity attributes
+        const essentialAttributes = [
+            'id',
+            'name',
+            'email',
+            'displayName',
+            'protected',
+            'type',
+        ]
+        essentialAttributes.forEach((attr) => attributeSet.add(attr))
+
+        // Add attributes.* for each schema attribute
+        const schemaAttributes = this.schemas?.listSchemaAttributeNames() ?? []
+        schemaAttributes.forEach((attr) => {
+            attributeSet.add(`attributes.${attr}`)
+        })
+
+        const attributes = Array.from(attributeSet).sort()
+        this.log.debug(`Built relevant identity attributes list: ${attributes.length} attributes`)
+        this.log.debug(`Attributes: ${attributes.join(', ')}`)
+
+        return attributes
+    }
+
+    /**
+     * Get the list of relevant identity attributes, building it lazily if needed
+     */
+    private getRelevantIdentityAttributes(): string[] | undefined {
+        if (!this.relevantIdentityAttributes) {
+            this.relevantIdentityAttributes = this.buildRelevantIdentityAttributes()
+        }
+        return this.relevantIdentityAttributes
     }
 
     // ------------------------------------------------------------------------
@@ -58,14 +108,18 @@ export class IdentityService {
         if (this.identityScopeQuery) {
             this.log.info('Fetching identities.')
 
-            //TODO: only fetch relevant attributes
-
+            const relevantAttributes = this.getRelevantIdentityAttributes()
             const query: Search = {
                 indices: ['identities'],
                 query: {
                     query: this.identityScopeQuery,
                 },
                 includeNested: true,
+                queryResultFilter: relevantAttributes
+                    ? {
+                        includes: relevantAttributes,
+                    }
+                    : undefined,
             }
 
             const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
@@ -85,14 +139,18 @@ export class IdentityService {
     public async fetchIdentityById(id: string): Promise<IdentityDocument> {
         this.log.info(`Fetching identity ${id}.`)
 
-        //TODO: only fetch relevant attributes
-
+        const relevantAttributes = this.getRelevantIdentityAttributes()
         const query: Search = {
             indices: ['identities'],
             query: {
                 query: `id:"${id}"`,
             },
             includeNested: true,
+            queryResultFilter: relevantAttributes
+                ? {
+                    includes: relevantAttributes,
+                }
+                : undefined,
         }
 
         const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
@@ -107,14 +165,18 @@ export class IdentityService {
     public async fetchIdentityByName(name: string): Promise<IdentityDocument> {
         this.log.info(`Fetching identity ${name}.`)
 
-        //TODO: only fetch relevant attributes
-
+        const relevantAttributes = this.getRelevantIdentityAttributes()
         const query: Search = {
             indices: ['identities'],
             query: {
                 query: `name.exact:"${name}"`,
             },
             includeNested: true,
+            queryResultFilter: relevantAttributes
+                ? {
+                    includes: relevantAttributes,
+                }
+                : undefined,
         }
 
         const identities = await this.client.paginateSearchApi<IdentityDocument>(query)

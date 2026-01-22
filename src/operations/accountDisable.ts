@@ -12,8 +12,15 @@ export const accountDisable = async (
     const { log, fusion, sources, schemas } = serviceRegistry
 
     try {
-        log.info(`Disabling account ${input.identity}...`)
+        assert(input, 'Account disable input is required')
         assert(input.identity, 'Account identity is required')
+        assert(serviceRegistry, 'Service registry is required')
+        assert(log, 'Log service is required')
+        assert(fusion, 'Fusion service is required')
+        assert(sources, 'Source service is required')
+        assert(schemas, 'Schema service is required')
+
+        log.info(`Disabling account ${input.identity}...`)
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)

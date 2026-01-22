@@ -14,7 +14,7 @@ export class SchemaService {
     private attributeMap: Map<string, AttributeMap> = new Map()
     private _fusionSchemaAttributeNames: string[] = []
     private readonly attributeMaps?: AttributeMap[]
-    private readonly attributeMerge: 'first' | 'list' | 'concatenate'
+    private readonly attributeMerge: 'first' | 'list' | 'concatenate' | 'source'
     private readonly attributeDefinitions?: AttributeDefinition[] // Local type from config
 
     constructor(

@@ -40,13 +40,14 @@ export interface AttributeDefinition {
     maxLength?: number
     normalize: boolean
     spaces: boolean
+    trim: boolean
     refresh: boolean
     values?: Set<string>
 }
 
 export interface MatchingConfig {
     attribute: string
-    algorithm?: 'name-matcher' | 'jaro-winkler' | 'dice' | 'double-metaphone' | 'average' | 'custom'
+    algorithm?: 'name-matcher' | 'jaro-winkler' | 'dice' | 'double-metaphone' | 'lig3' | 'average' | 'custom'
     fusionScore?: number
     mandatory?: boolean
 }
@@ -114,7 +115,7 @@ export interface SourceSettingsMenu extends ScopeSection, SourcesSection, Proces
 
 // Attribute Mapping Definitions Section
 export interface AttributeMappingDefinitionsSection {
-    attributeMerge: 'first' | 'list' | 'concatenate'
+    attributeMerge: 'first' | 'list' | 'concatenate' | 'source'
     attributeMaps?: AttributeMap[]
 }
 

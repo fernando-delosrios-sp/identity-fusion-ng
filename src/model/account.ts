@@ -101,7 +101,8 @@ export class FusionAccount {
         fusionAccount._displayName = fusionAccount._name
         fusionAccount._modified = getDateFromISOString(account.modified)
         fusionAccount._disabled = account.disabled ?? false
-        fusionAccount._reviews = new Set((account.attributes?.reviews as string[]) || [])
+        // Reviews are derived from pending fusion decisions, not loaded from previous state
+        fusionAccount._reviews = new Set()
         fusionAccount._statuses = new Set((account.attributes?.statuses as string[]) || [])
         fusionAccount._actions = new Set((account.attributes?.actions as string[]) || [])
         fusionAccount._previousAccountIds = new Set((account.attributes?.accounts as string[]) || [])

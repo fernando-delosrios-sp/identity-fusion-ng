@@ -12,8 +12,15 @@ export const accountRead = async (
     const { log, fusion, schemas, sources } = serviceRegistry
 
     try {
-        log.info(`Reading account ${input.identity}...`)
+        assert(input, 'Account read input is required')
         assert(input.identity, 'Account identity is required')
+        assert(serviceRegistry, 'Service registry is required')
+        assert(log, 'Log service is required')
+        assert(fusion, 'Fusion service is required')
+        assert(schemas, 'Schema service is required')
+        assert(sources, 'Source service is required')
+
+        log.info(`Reading account ${input.identity}...`)
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)

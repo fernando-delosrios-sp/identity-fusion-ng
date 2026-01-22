@@ -41,7 +41,8 @@ export class ServiceRegistry {
         this.sources = context.sourceService ?? new SourceService(this.config, this.log, this.client)
         this.entitlements = context.entitlementService ?? new EntitlementService(this.log, this.sources)
         this.scoring = context.scoringService ?? new ScoringService(this.config, this.log)
-        this.identities = context.identityService ?? new IdentityService(this.config, this.log, this.client)
+        this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)
+        this.identities = context.identityService ?? new IdentityService(this.config, this.log, this.client, this.schemas)
         this.messaging =
             context.messagingService ??
             new MessagingService(this.config, this.log, this.client, this.sources, this.identities)
@@ -50,7 +51,6 @@ export class ServiceRegistry {
             new FormService(this.config, this.log, this.client, this.sources, this.identities, this.messaging)
 
         // Initialize services that depend on others (in dependency order)
-        this.schemas = context.schemaService ?? new SchemaService(this.config, this.log, this.sources)
         const commandType = context.commandType as StandardCommand | undefined
         this.attributes =
             context.attributesService ??

@@ -15,8 +15,16 @@ export const accountCreate = async (
 
     let identityName = input.attributes.name ?? input.identity
     try {
+        assert(input, 'Account create input is required')
         assert(input.identity, 'Account identity is required')
-        assert(input.schema, 'Account schema is required')
+        assert(input.attributes, 'Account attributes are required')
+        assert(serviceRegistry, 'Service registry is required')
+        assert(log, 'Log service is required')
+        assert(identities, 'Identity service is required')
+        assert(sources, 'Source service is required')
+        assert(schemas, 'Schema service is required')
+        assert(fusion, 'Fusion service is required')
+        assert(attributes, 'Attribute service is required')
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)

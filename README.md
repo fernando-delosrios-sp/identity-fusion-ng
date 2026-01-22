@@ -41,6 +41,13 @@ You can use these features independently or together. This document provides an 
 - [Account aggregation](#account-aggregation)
 - [Correlation](#correlation)
 
+**Documentation:**
+
+- [Velocity Expressions Guide](docs/VELOCITY_EXPRESSIONS_GUIDE.md) - Comprehensive guide to using Velocity expressions
+- [Velocity Quick Reference](docs/VELOCITY_QUICK_REFERENCE.md) - Quick reference for Velocity syntax and helpers
+- [Velocity Practical Examples](docs/VELOCITY_EXAMPLES.md) - Real-world examples and use cases
+- [Algorithm Documentation](docs/LIG3_ALGORITHM.md) - Details on the deduplication algorithm
+
 **Get started**
 
 1. [Add fusion connector to ISC](#add-fusion-connector-to-isc)
@@ -389,7 +396,13 @@ The next step to configuring the fusion connector is to set up attribute definit
         - **Math**: JavaScript Math object for mathematical operations (e.g., `$Math.round($value)`, `$Math.max($a, $b)`).
         - **Date**: JavaScript Date object for date manipulation (e.g., `$Date.now()`, `new Date($dateString)`).
         - **Datefns**: date-fns library for advanced date formatting and manipulation (e.g., `$Datefns.format($date, 'yyyy-MM-dd')`, `$Datefns.addDays($date, 7)`).
-        - All account attributes from mapped sources.
+        - **Normalize**: Normalizers for dates, phone numbers, names, SSN, and addresses (e.g., `$Normalize.date($dateString)`, `$Normalize.phone($phoneNumber)`).
+        - **Address**: Address parsing and formatting helpers (e.g., `$Address.getCityState($city)`, `$Address.parse($fullAddress)`).
+        - All account attributes from mapped sources, previous attributes, identity attributes, and contributing managed accounts.
+        
+        For comprehensive documentation on Velocity expressions, see:
+        - [Velocity Expressions Guide](docs/VELOCITY_EXPRESSIONS_GUIDE.md) - Detailed examples and patterns
+        - [Velocity Quick Reference](docs/VELOCITY_QUICK_REFERENCE.md) - Quick lookup reference
     - **Case selection**: Case transformation to apply to the generated attribute value:
         - **Do not change**: No case transformation.
         - **Lower case**: Convert to lowercase.

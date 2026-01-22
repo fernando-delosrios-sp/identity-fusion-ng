@@ -10,6 +10,7 @@ export const ALGORITHM_LABELS: Record<string, string> = {
     'jaro-winkler': 'Jaro-Winkler',
     dice: 'Dice',
     'double-metaphone': 'Double Metaphone',
+    lig3: 'LIG3',
     custom: 'Custom Algorithm (from SaaS customizer)',
     average: 'Average Score',
 }

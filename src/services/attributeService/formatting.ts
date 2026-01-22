@@ -1,8 +1,8 @@
 import { transliterate } from 'transliteration'
 import velocityjs from 'velocityjs'
 import { RenderContext } from 'velocityjs/dist/src/type'
-import * as Datefns from 'date-fns'
 import { logger } from '@sailpoint/connector-sdk'
+import { contextHelpers } from './contextHelpers'
 
 /**
  * Normalize string by transliterating and removing special characters
@@ -19,6 +19,13 @@ export const normalize = (str: string): string => {
  */
 export const removeSpaces = (str: string): string => {
     return str.replace(/\s/g, '')
+}
+
+/**
+ * Trim leading and trailing spaces from a string
+ */
+export const trimSpaces = (str: string): string => {
+    return str.trim()
 }
 
 /**
@@ -48,7 +55,7 @@ export const evaluateVelocityTemplate = (
     context: RenderContext,
     maxLength?: number
 ): string | undefined => {
-    const extendedContext: RenderContext = { ...context, Math, Date, Datefns }
+    const extendedContext: RenderContext = { ...context, ...contextHelpers }
     logger.debug(`Evaluating velocity template - expression: ${expression}`)
 
     const template = velocityjs.parse(expression)
@@ -108,7 +115,7 @@ const truncateWithCounterPreserved = (
     const originalCounter = context.counter!
     const originalCounterLength = originalCounter.toString().length
     const availableLength = maxLength - originalCounterLength
-    
+
     if (availableLength < 0) {
         logger.error(
             `Maximum length ${maxLength} is less than counter length ${originalCounterLength} for expression: ${expression}`

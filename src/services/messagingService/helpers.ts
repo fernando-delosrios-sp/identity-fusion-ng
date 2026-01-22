@@ -15,6 +15,7 @@ export const registerHandlebarsHelpers = (): void => {
         'jaro-winkler': 'Jaro-Winkler',
         dice: 'Dice',
         'double-metaphone': 'Double Metaphone',
+        lig3: 'LIG3',
         custom: 'Custom',
         average: 'Average Score',
     }

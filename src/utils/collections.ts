@@ -8,20 +8,6 @@
 // ============================================================================
 
 /**
- * Converts a Set to an Array
- */
-export function setToArray<T>(set: Set<T>): T[] {
-    return Array.from(set)
-}
-
-/**
- * Converts an Array to a Set
- */
-export function arrayToSet<T>(array: T[]): Set<T> {
-    return new Set(array)
-}
-
-/**
  * Safely gets a value from a Set by converting it to an array and returning the first match
  * Useful when you need to find a specific item in a Set
  */
@@ -88,14 +74,6 @@ export function arrayToMapWithValue<T, K, V>(
     valueSelector: (item: T) => V
 ): Map<K, V> {
     return new Map(array.map((item) => [keySelector(item), valueSelector(item)]))
-}
-
-/**
- * Safely gets a value from a Map, returning undefined if not found
- * (This is the same as Map.get but provides a consistent interface)
- */
-export function mapGet<K, V>(map: Map<K, V>, key: K): V | undefined {
-    return map.get(key)
 }
 
 /**
@@ -169,37 +147,10 @@ export function uniqueBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
     return result
 }
 
-/**
- * Flattens an array of arrays into a single array
- */
-export function flatten<T>(arrays: T[][]): T[] {
-    return arrays.flat()
-}
-
-/**
- * Safely gets the first item from an array or undefined
- */
-export function first<T>(array: T[]): T | undefined {
-    return array[0]
-}
-
-/**
- * Safely gets the last item from an array or undefined
- */
-export function last<T>(array: T[]): T | undefined {
-    return array[array.length - 1]
-}
 
 // ============================================================================
 // Type Guards and Helpers
 // ============================================================================
-
-/**
- * Filters out null and undefined values from an array
- */
-export function compact<T>(array: (T | null | undefined)[]): T[] {
-    return array.filter((item): item is T => item !== null && item !== undefined)
-}
 
 /**
  * Checks if a value is defined (not null or undefined)

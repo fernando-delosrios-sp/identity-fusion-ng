@@ -3,7 +3,7 @@ import { LogService } from '../logService'
 import { FusionAccount } from '../../model/account'
 import { SchemaService } from '../schemaService'
 import { CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType, StandardCommand } from '@sailpoint/connector-sdk'
-import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from './formatting'
+import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase, trimSpaces } from './formatting'
 import { LockService } from '../lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { v4 as uuidv4 } from 'uuid'
@@ -11,7 +11,7 @@ import { assert } from '../../utils/assert'
 import { SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
 import { SourceService } from '../sourceService'
 import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE, FUSION_STATE_CONFIG_PATH } from './constants'
-import { AttributeMappingConfig } from './types'
+import { AttributeMappingConfig, AttributeMerge } from './types'
 import { isUniqueAttribute, processAttributeMapping, buildAttributeMappingConfig } from './helpers'
 import { StateWrapper } from './stateWrapper'
 
@@ -28,7 +28,7 @@ export class AttributeService {
     private attributeDefinitionConfig: AttributeDefinition[] = []
     private stateWrapper?: StateWrapper
     private readonly attributeMaps?: AttributeMap[]
-    private readonly attributeMerge: 'first' | 'list' | 'concatenate'
+    private readonly attributeMerge: AttributeMerge
     private readonly sourceConfigs: SourceConfig[]
     private readonly maxAttempts?: number
     private readonly forceAttributeRefresh: boolean
@@ -236,15 +236,22 @@ export class AttributeService {
      * Refresh non-unique attributes for a fusion account
      */
     public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
+        const allDefinitions = this.attributeDefinitionConfig
+        let attributesToRefresh = allDefinitions.filter((x) => !isUniqueAttribute(x))
+
+        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) {
+            attributesToRefresh = attributesToRefresh.filter((x) => x.refresh)
+
+            if (attributesToRefresh.length === 0) {
+                return
+            }
+        }
+
         this.log.debug(
             `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
         )
 
-        const allDefinitions = this.attributeDefinitionConfig
-        const nonUniqueAttributeDefinitions = allDefinitions.filter((x) => !isUniqueAttribute(x))
-
-        await this._refreshAttributes(fusionAccount, nonUniqueAttributeDefinitions)
+        await this._refreshAttributes(fusionAccount, attributesToRefresh)
     }
 
     /**
@@ -416,11 +423,14 @@ export class AttributeService {
             if (definition.spaces) {
                 value = removeSpaces(value)
             }
+            if (definition.trim) {
+                value = trimSpaces(value)
+            }
             if (definition.normalize) {
                 value = normalize(value)
             }
             this.log.debug(
-                `Final attribute value after transformations - attributeName: ${definition.name}, finalValue: ${value}, transformations: case=${definition.case}, spaces=${definition.spaces}, normalize=${definition.normalize}`
+                `Final attribute value after transformations - attributeName: ${definition.name}, finalValue: ${value}, transformations: case=${definition.case}, spaces=${definition.spaces}, trim=${definition.trim}, normalize=${definition.normalize}`
             )
         } else {
             this.log.error(`Failed to evaluate velocity template for attribute ${definition.name}`)
@@ -675,6 +685,7 @@ export class AttributeService {
                 type: 'uuid',
                 normalize: false,
                 spaces: false,
+                trim: false,
                 refresh: false,
             }
         }

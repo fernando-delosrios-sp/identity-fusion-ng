@@ -1,9 +1,7 @@
 - Create test artefacts
-- Implement appropriate exception handling
 - Implement external logging option
-- Improve logging
 - Implement Reset processing flag in case of unfinished processing?
 - Rethink source account filter
 - Consider enabled/disabled switch for card options
-- Only fetch relevant identity attributes
+- ✅ Only fetch relevant identity attributes
 - Implement performance logging (report???)

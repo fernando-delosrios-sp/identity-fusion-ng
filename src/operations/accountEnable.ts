@@ -11,8 +11,16 @@ export const accountEnable = async (
     const { log, fusion, sources, schemas, attributes } = serviceRegistry
 
     try {
-        log.info(`Enabling account ${input.identity}...`)
+        assert(input, 'Account enable input is required')
         assert(input.identity, 'Account identity is required')
+        assert(serviceRegistry, 'Service registry is required')
+        assert(log, 'Log service is required')
+        assert(fusion, 'Fusion service is required')
+        assert(sources, 'Source service is required')
+        assert(schemas, 'Schema service is required')
+        assert(attributes, 'Attribute service is required')
+
+        log.info(`Enabling account ${input.identity}...`)
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)

@@ -38,12 +38,12 @@ export const attrConcat = (list: string[], alreadyProcessed: boolean = false): s
     if (list.length === 0) {
         return ''
     }
-    
+
     // If already deduplicated and sorted (e.g., from processAttributeMapping), skip redundant work
-    const unique = alreadyProcessed 
-        ? list 
+    const unique = alreadyProcessed
+        ? list
         : Array.from(new Set(list)).sort()
-    
+
     return unique.map((x) => `[${x}]`).join(' ')
 }
 
@@ -198,7 +198,7 @@ const extractValuesFromAccounts = (accounts: Attributes[], attributeNames: strin
 export const buildAttributeMappingConfig = (
     attributeName: string,
     attributeMaps: any[] | undefined,
-    defaultAttributeMerge: 'first' | 'list' | 'concatenate'
+    defaultAttributeMerge: 'first' | 'list' | 'concatenate' | 'source'
 ): AttributeMappingConfig => {
     // Check if attribute has specific configuration in attributeMaps
     const attributeMap = attributeMaps?.find((am) => am.newAttribute === attributeName)

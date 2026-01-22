@@ -15,10 +15,18 @@ export const accountUpdate = async (
     const { log, sources, schemas, fusion } = serviceRegistry
 
     try {
-        log.info(`Updating account ${input.identity}...`)
+        assert(input, 'Account update input is required')
         assert(input.identity, 'Account identity is required')
         assert(input.changes, 'Account changes are required')
+        assert(Array.isArray(input.changes), 'Account changes must be an array')
         assert(input.changes.length > 0, 'At least one change is required')
+        assert(serviceRegistry, 'Service registry is required')
+        assert(log, 'Log service is required')
+        assert(sources, 'Source service is required')
+        assert(schemas, 'Schema service is required')
+        assert(fusion, 'Fusion service is required')
+
+        log.info(`Updating account ${input.identity}...`)
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)

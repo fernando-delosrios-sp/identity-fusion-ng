@@ -14,6 +14,20 @@ export const accountList = async (
     try {
         log.info('Starting account list operation')
 
+        // Validate required inputs
+        assert(input, 'Account list input is required')
+        assert(serviceRegistry, 'Service registry is required')
+
+        // Validate service registry components
+        assert(log, 'Log service is required')
+        assert(fusion, 'Fusion service is required')
+        assert(forms, 'Form service is required')
+        assert(identities, 'Identity service is required')
+        assert(schemas, 'Schema service is required')
+        assert(sources, 'Source service is required')
+        assert(attributes, 'Attribute service is required')
+        assert(messaging, 'Messaging service is required')
+
         await sources.fetchAllSources()
         if (fusion.isReset()) {
             log.info('Reset flag detected, disabling reset and exiting')
@@ -42,11 +56,19 @@ export const accountList = async (
 
         await Promise.all(fetchPromises)
         const fusionOwner = sources.fusionSourceOwner
+        assert(fusionOwner, 'Fusion source owner is required')
+        assert(fusionOwner.id, 'Fusion source owner ID is required')
+
         if (fusion.fusionReportOnAggregation) {
             const fusionOwnerIdentity = identities.getIdentityById(fusionOwner.id)
             if (!fusionOwnerIdentity) {
                 log.info(`Fusion owner identity missing. Fetching identity: ${fusionOwner.id}`)
-                await identities.fetchIdentityById(fusionOwner.id!)
+                try {
+                    await identities.fetchIdentityById(fusionOwner.id!)
+                } catch (error) {
+                    log.error(`Failed to fetch fusion owner identity: ${fusionOwner.id}`, error)
+                    log.warn('Fusion report will be skipped due to missing owner identity')
+                }
             }
         }
 
@@ -75,7 +97,9 @@ export const accountList = async (
 
         const accounts = await fusion.listISCAccounts()
         assert(accounts, 'Failed to list ISC accounts')
+        assert(Array.isArray(accounts), 'ISC accounts must be an array')
         log.info(`Sending ${accounts.length} account(s)`)
+
         accounts.forEach((x) => res.send(x))
 
         await forms.cleanUpForms()

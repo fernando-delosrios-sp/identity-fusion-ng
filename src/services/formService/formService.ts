@@ -72,34 +72,79 @@ export class FormService {
         this.fusionIdentityDecisions = []
         this.fusionAssignmentDecisionMap = new Map()
 
-        const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
-        this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
+        try {
+            const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
+            this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
 
-        // Fetch all instances in parallel for better performance
-        const formInstancesResults = await Promise.all(
-            forms.map(async (form) => {
-                this.log.debug(`Fetching instances for form definition: ${form.id} (${form.name || 'unknown'})`)
-                const instances = await this.fetchFormInstancesByDefinitionId(form.id)
-                this.log.debug(`Fetched ${instances.length} instance(s) for form definition: ${form.id}`)
-                return instances
-            })
-        )
+            // Fetch all instances in parallel for better performance
+            const formInstancesResults = await Promise.allSettled(
+                forms.map(async (form) => {
+                    try {
+                        this.log.debug(`Fetching instances for form definition: ${form.id} (${form.name || 'unknown'})`)
+                        const instances = await this.fetchFormInstancesByDefinitionId(form.id)
+                        this.log.debug(`Fetched ${instances.length} instance(s) for form definition: ${form.id}`)
+                        return instances
+                    } catch (error) {
+                        this.log.error(`Failed to fetch instances for form definition ${form.id}`, error)
+                        return [] // Return empty array to continue processing other forms
+                    }
+                })
+            )
 
-        // Process all instances sequentially to avoid race conditions when modifying shared state
-        // (fetching was done in parallel above, processing is fast so sequential is fine)
-        for (const instances of formInstancesResults) {
-            if (instances.length > 0) {
-                this.processFusionFormInstances(instances)
+            // Process all instances sequentially to avoid race conditions when modifying shared state
+            // (fetching was done in parallel above, processing is fast so sequential is fine)
+            let processedFormsCount = 0
+            let failedFormsCount = 0
+
+            for (const result of formInstancesResults) {
+                if (result.status === 'fulfilled' && result.value.length > 0) {
+                    // Gracefully handle form processing errors
+                    // If processing fails, the form should be kept for the next run
+                    try {
+                        this.processFusionFormInstances(result.value)
+                        processedFormsCount++
+                    } catch (error) {
+                        failedFormsCount++
+                        this.log.error(`Failed to process fusion form instances`, error)
+                        this.log.warn(`Form instances will be kept and retried on next aggregation`)
+                        // Don't rethrow - continue processing other forms
+                        // The form will remain in the system and be processed on the next run
+                    }
+                }
             }
-        }
 
-        const fusionDecisionsCount = this.fusionIdentityDecisions?.length ?? 0
-        this.log.debug(`Form data fetch completed - ${fusionDecisionsCount} fusion decision(s)`)
+            const fusionDecisionsCount = this.fusionIdentityDecisions?.length ?? 0
+            this.log.info(
+                `Form data fetch completed - ${fusionDecisionsCount} fusion decision(s) from ${processedFormsCount} form group(s)` +
+                (failedFormsCount > 0 ? ` (${failedFormsCount} form group(s) failed and will be retried)` : '')
+            )
+        } catch (error) {
+            this.log.error('Failed to fetch form data', error)
+            this.log.warn('Continuing with empty fusion decisions')
+            // Don't rethrow - allow aggregation to continue without form data
+        }
     }
 
     public async deleteExistingForms(): Promise<void> {
+        assert(this.fusionFormNamePattern, 'Fusion form name pattern is required for deleting forms')
+
         const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
-        await Promise.all(forms.map((form) => this.deleteForm(form.id!)))
+        this.log.info(`Deleting ${forms.length} existing form(s)`)
+
+        // Validate form IDs before attempting deletion
+        const validForms = forms.filter((form) => {
+            if (!form.id) {
+                this.log.warn(`Skipping form without ID: ${form.name || 'unknown'}`)
+                return false
+            }
+            return true
+        })
+
+        if (validForms.length !== forms.length) {
+            this.log.warn(`Skipping ${forms.length - validForms.length} form(s) without valid IDs`)
+        }
+
+        await Promise.all(validForms.map((form) => this.deleteForm(form.id!)))
     }
 
     /**
@@ -112,7 +157,25 @@ export class FormService {
         }
 
         this.log.info(`Cleaning up ${this.formsToDelete.length} form(s)`)
-        await Promise.all(this.formsToDelete.map((formId) => this.deleteForm(formId)))
+
+        // Delete forms in parallel, but handle errors gracefully for each form
+        const deleteResults = await Promise.allSettled(
+            this.formsToDelete.map(async (formId) => {
+                try {
+                    await this.deleteForm(formId)
+                    this.log.debug(`Successfully deleted form ${formId}`)
+                } catch (error) {
+                    this.log.warn(`Failed to delete form ${formId}, it may have already been deleted`, error)
+                    // Don't throw - continue cleaning up other forms
+                }
+            })
+        )
+
+        const failedDeletes = deleteResults.filter((r) => r.status === 'rejected').length
+        if (failedDeletes > 0) {
+            this.log.warn(`Failed to delete ${failedDeletes} of ${this.formsToDelete.length} form(s)`)
+        }
+
         this.formsToDelete = []
         this.log.debug('Form cleanup completed')
     }
@@ -125,29 +188,41 @@ export class FormService {
         reviewers: Set<FusionAccount> | undefined
     ): Promise<void> {
         assert(fusionAccount, 'Fusion account is required')
+        assert(fusionAccount.name || fusionAccount.nativeIdentity, 'Fusion account must have a name or native identity')
+        assert(fusionAccount.sourceName, 'Fusion account must have a source name')
 
         if (!this.hasValidReviewers(reviewers, fusionAccount.name || 'Unknown')) {
             return
         }
 
-        const { candidates, formDefinition, formInput, expire, fusionSourceId } =
-            await this.prepareFormCreationData(fusionAccount, reviewers!.size)
+        try {
+            this.log.debug(`Creating fusion form for account ${fusionAccount.name || fusionAccount.nativeIdentity} with ${reviewers!.size} reviewer(s)`)
 
-        const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
-        const existingRecipientIds = this.extractExistingRecipientIds(existingInstances)
+            const { candidates, formDefinition, formInput, expire, fusionSourceId } =
+                await this.prepareFormCreationData(fusionAccount, reviewers!.size)
 
-        this.associateExistingInstancesWithReviewers(existingInstances, reviewers!)
+            const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
+            const existingRecipientIds = this.extractExistingRecipientIds(existingInstances)
 
-        await this.createFormInstancesForReviewers(
-            reviewers!,
-            formDefinition,
-            formInput,
-            fusionSourceId,
-            expire,
-            fusionAccount,
-            candidates,
-            existingRecipientIds
-        )
+            this.associateExistingInstancesWithReviewers(existingInstances, reviewers!)
+
+            await this.createFormInstancesForReviewers(
+                reviewers!,
+                formDefinition,
+                formInput,
+                fusionSourceId,
+                expire,
+                fusionAccount,
+                candidates,
+                existingRecipientIds
+            )
+        } catch (error) {
+            this.log.error(
+                `Failed to create fusion form for account ${fusionAccount.name || fusionAccount.nativeIdentity} [${fusionAccount.sourceName}]`,
+                error
+            )
+            throw error // Re-throw to allow caller to handle gracefully
+        }
     }
 
     /**
@@ -175,18 +250,29 @@ export class FormService {
         expire: string
         fusionSourceId: string
     }> {
+        assert(fusionAccount, 'Fusion account is required for form preparation')
+        assert(reviewerCount > 0, 'At least one reviewer is required for form creation')
+        assert(this.fusionFormNamePattern, 'Fusion form name pattern is required')
+        assert(this.sources, 'Source service is required')
+
         this.log.debug(`Building fusion form for account ${fusionAccount.name} with ${reviewerCount} reviewer(s)`)
 
         const candidates = buildCandidateList(fusionAccount)
         assert(candidates, 'Failed to build candidate list')
+        assert(Array.isArray(candidates), 'Candidates must be an array')
+        assert(candidates.length > 0, 'At least one candidate is required for form creation')
 
         const formName = buildFormName(fusionAccount, this.fusionFormNamePattern)
         assert(formName, 'Form name is required')
+        assert(formName.length > 0, 'Form name cannot be empty')
 
         const formDefinition = await this.getOrCreateFormDefinition(formName, fusionAccount, candidates)
+        assert(formDefinition, 'Form definition is required')
+        assert(formDefinition.id, 'Form definition must have an ID')
 
         const formInput = buildFormInput(fusionAccount, candidates, this.fusionFormAttributes)
         assert(formInput, 'Form input is required')
+        assert(typeof formInput === 'object', 'Form input must be an object')
 
         const expire = calculateExpirationDate(this.fusionFormExpirationDays)
         assert(expire, 'Form expiration date is required')
@@ -221,16 +307,28 @@ export class FormService {
      * Extract recipient IDs from existing form instances
      */
     private extractExistingRecipientIds(instances: FormInstanceResponseV2025[]): Set<string> {
+        if (!instances || !Array.isArray(instances)) {
+            this.log.warn('Invalid instances array provided, returning empty recipient IDs set')
+            return new Set()
+        }
+
         const recipientIds: string[] = []
         for (const instance of instances) {
+            if (!instance) {
+                this.log.warn('Skipping null/undefined form instance when extracting recipient IDs')
+                continue
+            }
+
             if (instance.recipients) {
                 for (const recipient of instance.recipients) {
-                    if (recipient.id) {
+                    if (recipient && recipient.id) {
                         recipientIds.push(recipient.id)
                     }
                 }
             }
         }
+
+        this.log.debug(`Extracted ${recipientIds.length} existing recipient ID(s) from ${instances.length} instance(s)`)
         return new Set(recipientIds)
     }
 
@@ -241,24 +339,47 @@ export class FormService {
         existingInstances: FormInstanceResponseV2025[],
         reviewers: Set<FusionAccount>
     ): void {
+        if (!existingInstances || !Array.isArray(existingInstances)) {
+            this.log.warn('Invalid existing instances array, skipping association with reviewers')
+            return
+        }
+
+        if (!reviewers || reviewers.size === 0) {
+            this.log.debug('No reviewers provided, skipping association with existing instances')
+            return
+        }
+
+        let associatedCount = 0
+
         for (const instance of existingInstances) {
+            if (!instance) {
+                this.log.warn('Skipping null/undefined instance when associating with reviewers')
+                continue
+            }
+
             if (!instance.recipients || !instance.standAloneFormUrl) {
+                this.log.debug(`Skipping instance ${instance.id || 'unknown'} - missing recipients or form URL`)
                 continue
             }
 
             for (const recipient of instance.recipients) {
-                if (!recipient.id) {
+                if (!recipient || !recipient.id) {
                     continue
                 }
 
                 const reviewer = Array.from(reviewers).find((r) => r.identityId === recipient.id)
                 if (reviewer) {
                     reviewer.addFusionReview(instance.standAloneFormUrl)
+                    associatedCount++
                     this.log.debug(
                         `Added existing form instance ${instance.id} to reviewer ${recipient.id} reviews`
                     )
                 }
             }
+        }
+
+        if (associatedCount > 0) {
+            this.log.debug(`Associated ${associatedCount} existing form instance(s) with reviewers`)
         }
     }
 
@@ -275,10 +396,28 @@ export class FormService {
         candidates: Candidate[],
         existingRecipientIds: Set<string>
     ): Promise<void> {
+        assert(reviewers, 'Reviewers set is required')
+        assert(reviewers.size > 0, 'At least one reviewer is required')
+        assert(formDefinition, 'Form definition is required')
+        assert(formDefinition.id, 'Form definition must have an ID')
+        assert(formInput, 'Form input is required')
+        assert(fusionSourceId, 'Fusion source ID is required')
+        assert(expire, 'Expiration date is required')
+        assert(fusionAccount, 'Fusion account is required')
+        assert(candidates, 'Candidates list is required')
+        assert(existingRecipientIds, 'Existing recipient IDs set is required')
+
+        this.log.debug(`Creating form instances for ${reviewers.size} reviewer(s)`)
+
         for (const reviewer of reviewers) {
+            if (!reviewer) {
+                this.log.warn('Skipping null/undefined reviewer')
+                continue
+            }
+
             const reviewerId = reviewer.identityId
             if (!reviewerId) {
-                this.log.warn(`Reviewer ${reviewer.name} has no identity ID, skipping`)
+                this.log.warn(`Reviewer ${reviewer.name || 'unknown'} has no identity ID, skipping`)
                 continue
             }
 
@@ -316,30 +455,41 @@ export class FormService {
         hasPreviousInstance: boolean
     ): Promise<string | undefined> {
         return (async (): Promise<string | undefined> => {
-            const formInstance = await this.createFormInstance(
-                formDefinitionId,
-                formInput,
-                [reviewerId],
-                fusionSourceId,
-                expire
-            )
-            assert(formInstance, 'Failed to create form instance')
+            try {
+                const formInstance = await this.createFormInstance(
+                    formDefinitionId,
+                    formInput,
+                    [reviewerId],
+                    fusionSourceId,
+                    expire
+                )
+                assert(formInstance, 'Failed to create form instance')
 
-            if (!formInstance.id) {
-                return undefined
+                if (!formInstance.id) {
+                    this.log.warn(
+                        `Form instance created but has no ID for reviewer ${reviewerId}, account ${fusionAccount.name || fusionAccount.nativeIdentity}`
+                    )
+                    return undefined
+                }
+
+                this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
+
+                await this.sendFormInstanceNotificationIfEnabled(
+                    formInstance,
+                    fusionAccount,
+                    candidates,
+                    reviewerId,
+                    hasPreviousInstance
+                )
+
+                return formInstance.standAloneFormUrl ?? undefined
+            } catch (error) {
+                this.log.error(
+                    `Failed to create form instance for reviewer ${reviewerId}, account ${fusionAccount.name || fusionAccount.nativeIdentity}`,
+                    error
+                )
+                throw error
             }
-
-            this.log.debug(`Created form instance ${formInstance.id} for reviewer ${reviewerId}`)
-
-            await this.sendFormInstanceNotificationIfEnabled(
-                formInstance,
-                fusionAccount,
-                candidates,
-                reviewerId,
-                hasPreviousInstance
-            )
-
-            return formInstance.standAloneFormUrl ?? undefined
         })()
     }
 
@@ -395,9 +545,16 @@ export class FormService {
      * Get fusion decision for a specific identity UID
      */
     public getIdentityFusionDecision(identityUid: string): FusionDecision | undefined {
-        if (!this.fusionIdentityDecisions) {
+        if (!identityUid) {
+            this.log.warn('Identity UID is required to get fusion decision')
             return undefined
         }
+
+        if (!this.fusionIdentityDecisions) {
+            this.log.debug('Fusion identity decisions not yet initialized')
+            return undefined
+        }
+
         return this.fusionIdentityDecisions.find((decision) => decision.account.id === identityUid)
     }
 
@@ -405,6 +562,16 @@ export class FormService {
      * Get assignment fusion decision for an identity ID
      */
     public getAssignmentFusionDecision(identityId: string): FusionDecision | undefined {
+        if (!identityId) {
+            this.log.warn('Identity ID is required to get assignment fusion decision')
+            return undefined
+        }
+
+        if (!this.fusionAssignmentDecisionMap) {
+            this.log.debug('Fusion assignment decision map not yet initialized')
+            return undefined
+        }
+
         return this.fusionAssignmentDecisionMap.get(identityId)
     }
 
@@ -412,20 +579,34 @@ export class FormService {
      * Fetch form instances by definition ID
      */
     public async fetchFormInstancesByDefinitionId(formDefinitionId?: string): Promise<FormInstanceResponseV2025[]> {
+        if (!formDefinitionId) {
+            this.log.warn('Form definition ID is undefined, returning empty array')
+            return []
+        }
+
+        assert(this.client, 'Client service is required')
         const { customFormsApi } = this.client
-        const axiosOptions: RawAxiosRequestConfig = {
-            params: {
-                filters: `formDefinitionId eq "${formDefinitionId}"`,
-            },
-        }
+        assert(customFormsApi, 'Custom forms API is required')
 
-        const searchFormInstancesByTenant = async () => {
-            const response = await customFormsApi.searchFormInstancesByTenant(axiosOptions)
-            return response.data ?? []
-        }
+        try {
+            const axiosOptions: RawAxiosRequestConfig = {
+                params: {
+                    filters: `formDefinitionId eq "${formDefinitionId}"`,
+                },
+            }
 
-        const formInstances = await this.client.execute(searchFormInstancesByTenant)
-        return formInstances
+            const searchFormInstancesByTenant = async () => {
+                const response = await customFormsApi.searchFormInstancesByTenant(axiosOptions)
+                return response.data ?? []
+            }
+
+            const formInstances = await this.client.execute(searchFormInstancesByTenant)
+            this.log.debug(`Fetched ${formInstances.length} form instance(s) for definition ${formDefinitionId}`)
+            return formInstances
+        } catch (error) {
+            this.log.error(`Failed to fetch form instances for definition ${formDefinitionId}`, error)
+            throw error
+        }
     }
 
     /**
@@ -773,17 +954,22 @@ export class FormService {
         const { customFormsApi } = this.client
         assert(customFormsApi, 'Custom forms API is required')
 
-        this.log.debug(`Creating form definition: ${form.body.name}`)
-        const createFormDefinition = async () => {
-            const response = await customFormsApi.createFormDefinition(form)
-            return response.data
-        }
-        const formInstance = await this.client.execute(createFormDefinition)
-        assert(formInstance, 'Failed to create form definition')
-        assert(formInstance.id, 'Form definition ID is missing')
+        try {
+            this.log.debug(`Creating form definition: ${form.body.name}`)
+            const createFormDefinition = async () => {
+                const response = await customFormsApi.createFormDefinition(form)
+                return response.data
+            }
+            const formInstance = await this.client.execute(createFormDefinition)
+            assert(formInstance, 'Failed to create form definition')
+            assert(formInstance.id, 'Form definition ID is missing')
 
-        this.log.debug(`Form definition created successfully: ${formInstance.id}`)
-        return formInstance
+            this.log.debug(`Form definition created successfully: ${formInstance.id}`)
+            return formInstance
+        } catch (error) {
+            this.log.error(`Failed to create form definition: ${form.body.name}`, error)
+            throw error
+        }
     }
 
     /**
@@ -807,37 +993,45 @@ export class FormService {
         const { customFormsApi } = this.client
         assert(customFormsApi, 'Custom forms API is required')
 
-        this.log.debug(
-            `Creating form instance for definition ${formDefinitionId} with ${recipientList.length} recipient(s)`
-        )
-        const recipients: FormInstanceRecipientV2025[] = recipientList.map((x) => ({ id: x, type: 'IDENTITY' }))
-        const createdBy: FormInstanceCreatedByV2025 = {
-            id: sourceId,
-            type: 'SOURCE',
-        }
+        try {
+            this.log.debug(
+                `Creating form instance for definition ${formDefinitionId} with ${recipientList.length} recipient(s)`
+            )
+            const recipients: FormInstanceRecipientV2025[] = recipientList.map((x) => ({ id: x, type: 'IDENTITY' }))
+            const createdBy: FormInstanceCreatedByV2025 = {
+                id: sourceId,
+                type: 'SOURCE',
+            }
 
-        const body: CreateFormInstanceRequestV2025 = {
-            formDefinitionId,
-            recipients,
-            createdBy,
-            expire,
-            formInput,
-            standAloneForm: true,
-        }
+            const body: CreateFormInstanceRequestV2025 = {
+                formDefinitionId,
+                recipients,
+                createdBy,
+                expire,
+                formInput,
+                standAloneForm: true,
+            }
 
-        const requestParameters: CustomFormsV2025ApiCreateFormInstanceRequest = {
-            body,
-        }
+            const requestParameters: CustomFormsV2025ApiCreateFormInstanceRequest = {
+                body,
+            }
 
-        const createFormInstanceCall = async () => {
-            const response = await customFormsApi.createFormInstance(requestParameters)
-            return response.data
-        }
+            const createFormInstanceCall = async () => {
+                const response = await customFormsApi.createFormInstance(requestParameters)
+                return response.data
+            }
 
-        const response = await this.client.execute(createFormInstanceCall)
-        assert(response, 'Failed to create form instance')
-        this.log.debug(`Form instance created successfully: ${response.id || 'unknown'}`)
-        return response
+            const response = await this.client.execute(createFormInstanceCall)
+            assert(response, 'Failed to create form instance')
+            this.log.debug(`Form instance created successfully: ${response.id || 'unknown'}`)
+            return response
+        } catch (error) {
+            this.log.error(
+                `Failed to create form instance for definition ${formDefinitionId} with recipients ${recipientList.join(', ')}`,
+                error
+            )
+            throw error
+        }
     }
 
     /**
@@ -850,11 +1044,16 @@ export class FormService {
         const { customFormsApi } = this.client
         assert(customFormsApi, 'Custom forms API is required')
 
-        this.log.debug(`Deleting form definition: ${formDefinitionID}`)
-        const deleteFormDefinition = async () => {
-            await customFormsApi.deleteFormDefinition({ formDefinitionID })
+        try {
+            this.log.debug(`Deleting form definition: ${formDefinitionID}`)
+            const deleteFormDefinition = async () => {
+                await customFormsApi.deleteFormDefinition({ formDefinitionID })
+            }
+            await this.client.execute(deleteFormDefinition)
+            this.log.debug(`Form definition deleted successfully: ${formDefinitionID}`)
+        } catch (error) {
+            this.log.error(`Failed to delete form definition: ${formDefinitionID}`, error)
+            throw error
         }
-        await this.client.execute(deleteFormDefinition)
-        this.log.debug(`Form definition deleted successfully: ${formDefinitionID}`)
     }
 }

@@ -2,7 +2,7 @@ import { FusionAccount } from '../../model/account'
 import { MatchingConfig, FusionConfig } from '../../model/config'
 import { LogService } from '../logService'
 import { FusionMatch, ScoreReport } from './types'
-import { scoreDice, scoreDoubleMetaphone, scoreJaroWinkler, scoreNameMatcher } from './helpers'
+import { scoreDice, scoreDoubleMetaphone, scoreJaroWinkler, scoreLIG3, scoreNameMatcher } from './helpers'
 
 /**
  * Service for calculating and managing similarity scores for identity matching.
@@ -98,6 +98,8 @@ export class ScoringService {
                 return scoreDice(accountAttribute, identityAttribute, matchingConfig)
             case 'double-metaphone':
                 return scoreDoubleMetaphone(accountAttribute, identityAttribute, matchingConfig)
+            case 'lig3':
+                return scoreLIG3(accountAttribute, identityAttribute, matchingConfig)
             case 'custom':
                 this.log.crash('Custom algorithm not implemented')
         }

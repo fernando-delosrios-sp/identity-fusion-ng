@@ -127,15 +127,25 @@ export class FusionService {
      * Pre-process all fusion accounts from sources
      */
     public async preProcessFusionAccounts(): Promise<void> {
+        assert(this.sources, 'Source service is required')
         const fusionAccounts = this.sources.fusionAccounts
+        assert(fusionAccounts, 'Fusion accounts not loaded from sources')
+        assert(Array.isArray(fusionAccounts), 'Fusion accounts must be an array')
+
+        this.log.debug(`Pre-processing ${fusionAccounts.length} fusion account(s)`)
         await Promise.all(fusionAccounts.map((x: Account) => this.preProcessFusionAccount(x)))
+        this.log.debug('Fusion accounts pre-processing completed')
     }
 
     /**
      * Process all fusion accounts from sources
      */
     public async processFusionAccounts(): Promise<void> {
+        assert(this.sources, 'Source service is required')
         const fusionAccounts = this.sources.fusionAccounts
+        assert(fusionAccounts, 'Fusion accounts not loaded from sources')
+        assert(Array.isArray(fusionAccounts), 'Fusion accounts must be an array')
+
         this.log.info(`Processing ${fusionAccounts.length} fusion account(s)`)
         await Promise.all(fusionAccounts.map((x: Account) => this.processFusionAccount(x)))
         this.log.info('Fusion accounts processing completed')
@@ -145,15 +155,20 @@ export class FusionService {
      * Pre-process a single fusion account
      */
     public async preProcessFusionAccount(account: Account): Promise<FusionAccount> {
+        assert(account, 'Account is required for pre-processing')
+        assert(account.nativeIdentity, 'Account must have a native identity')
         assert(
             !this.fusionIdentityMap.has(account.nativeIdentity),
             `Fusion account found for ${account.nativeIdentity}. Should not process Fusion accounts more than once.`
         )
 
         const fusionAccount = FusionAccount.fromFusionAccount(account)
-        const key = this.attributes.getSimpleKey(fusionAccount)
-        fusionAccount.setKey(key)
+        assert(fusionAccount, 'Failed to create fusion account from account')
 
+        const key = this.attributes.getSimpleKey(fusionAccount)
+        assert(key, `Failed to generate key for fusion account ${account.nativeIdentity}`)
+
+        fusionAccount.setKey(key)
         this.setFusionAccount(fusionAccount)
 
         return fusionAccount
@@ -163,9 +178,15 @@ export class FusionService {
      * Process a single fusion account
      */
     public async processFusionAccount(account: Account): Promise<FusionAccount> {
+        assert(account, 'Account is required for processing')
+        assert(account.identityId, `Account ${account.nativeIdentity || 'unknown'} must have an identity ID`)
+
         const fusionAccount = await this.preProcessFusionAccount(account)
+        assert(fusionAccount, 'Failed to pre-process fusion account')
+
         const managedAccountsMap = this.sources.managedAccountsById
         assert(managedAccountsMap, 'Managed accounts have not been loaded')
+
         const identityId = account.identityId!
 
         fusionAccount.listReviewerSources().forEach((sourceId) => {
@@ -286,11 +307,16 @@ export class FusionService {
      * Process a single identity fusion decision
      */
     public async processIdentityFusionDecision(fusionDecision: FusionDecision): Promise<void> {
+        assert(fusionDecision, 'Fusion decision is required')
+        assert(fusionDecision.account, 'Fusion decision must have an account')
+        assert(fusionDecision.account.id, 'Fusion decision account must have an ID')
+
         // Skip unfinished decisions - they represent in-progress reviews and should not
         // yet affect fusion identity state.
         if (!fusionDecision.finished) {
             this.log.debug(
-                `Skipping unfinished fusion decision for account ${fusionDecision.account.id} (identity: ${fusionDecision.identityId ?? 'new'})`
+                `Skipping unfinished fusion decision for account ${fusionDecision.account.id} ` +
+                `(identity: ${fusionDecision.identityId ?? 'new'})`
             )
             return
         }
@@ -298,21 +324,31 @@ export class FusionService {
         let fusionAccount: FusionAccount
         if (fusionDecision.newIdentity) {
             fusionAccount = FusionAccount.fromFusionDecision(fusionDecision)
+            assert(fusionAccount, 'Failed to create fusion account from fusion decision')
         } else {
+            assert(fusionDecision.identityId, 'Fusion decision must have an identity ID when not creating new identity')
             fusionAccount = this.fusionIdentityMap.get(fusionDecision.identityId!)!
-            assert(fusionAccount, 'Fusion account not found')
+            assert(
+                fusionAccount,
+                `Fusion account not found for identity ID: ${fusionDecision.identityId} ` +
+                `(decision for account: ${fusionDecision.account.id})`
+            )
         }
 
         fusionAccount.addFusionDecisionLayer(fusionDecision)
-        const managedAccountsMap = this.sources.managedAccountsById!
+
+        const managedAccountsMap = this.sources.managedAccountsById
+        assert(managedAccountsMap, 'Managed accounts map is required')
+
         fusionAccount.addManagedAccountLayer(managedAccountsMap)
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshAttributes(fusionAccount)
 
         if (fusionDecision.newIdentity) {
             const key = this.attributes.getSimpleKey(fusionAccount)
-            fusionAccount.setKey(key)
+            assert(key, `Failed to generate key for new fusion account from decision ${fusionDecision.account.id}`)
 
+            fusionAccount.setKey(key)
             this.setFusionAccount(fusionAccount)
         }
     }
@@ -325,10 +361,35 @@ export class FusionService {
      * Process all managed accounts
      */
     public async processManagedAccounts(): Promise<void> {
+        assert(this.sources, 'Source service is required')
         const { managedAccounts } = this.sources
+        assert(managedAccounts, 'Managed accounts not loaded from sources')
+        assert(Array.isArray(managedAccounts), 'Managed accounts must be an array')
+
         this.newManagedAccountsCount = managedAccounts.length
         this.log.info(`Processing ${managedAccounts.length} managed account(s)`)
-        await Promise.all(managedAccounts.map((x: Account) => this.processManagedAccount(x)))
+
+        // Filter out null/undefined accounts before processing
+        const validAccounts = managedAccounts.filter((account) => {
+            if (!account) {
+                this.log.warn('Skipping null/undefined managed account')
+                return false
+            }
+            if (!account.name && !account.nativeIdentity) {
+                this.log.warn('Skipping managed account without name or native identity')
+                return false
+            }
+            return true
+        })
+
+        if (validAccounts.length !== managedAccounts.length) {
+            this.log.warn(
+                `Skipped ${managedAccounts.length - validAccounts.length} invalid managed account(s), ` +
+                `processing ${validAccounts.length} valid account(s)`
+            )
+        }
+
+        await Promise.all(validAccounts.map((x: Account) => this.processManagedAccount(x)))
         this.log.info('Managed accounts processing completed')
     }
 
@@ -336,17 +397,57 @@ export class FusionService {
      * Process a single managed account
      */
     public async processManagedAccount(account: Account): Promise<void> {
+        assert(account, 'Account is required for processing')
+        assert(account.name || account.nativeIdentity, 'Account must have a name or native identity')
+        assert(account.sourceName, 'Account must have a source name')
+
         const fusionAccount = await this.analyzeManagedAccount(account)
+        assert(fusionAccount, 'Failed to analyze managed account')
 
         if (fusionAccount.isMatch) {
             const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
-            assert(sourceInfo, 'Source info not found')
+            assert(sourceInfo, `Source info not found for source: ${fusionAccount.sourceName}`)
+            assert(sourceInfo.id, `Source info missing ID for source: ${fusionAccount.sourceName}`)
+
             const reviewers = this.reviewersBySourceId.get(sourceInfo.id!)
-            await this.forms.createFusionForm(fusionAccount, reviewers)
+            if (!reviewers || reviewers.size === 0) {
+                this.log.warn(
+                    `No reviewers configured for source ${fusionAccount.sourceName} (ID: ${sourceInfo.id}), ` +
+                    `skipping form creation for account ${account.name || account.nativeIdentity}`
+                )
+                return
+            }
+
+            // Gracefully handle form creation errors
+            // If form creation fails, the managed account should still be removed from the list
+            try {
+                await this.forms.createFusionForm(fusionAccount, reviewers)
+                this.log.debug(
+                    `Successfully created fusion form for account ${account.name || account.nativeIdentity} ` +
+                    `[${account.sourceName}] with ${reviewers.size} reviewer(s)`
+                )
+            } catch (error) {
+                this.log.error(
+                    `Failed to create fusion form for account ${account.name || account.nativeIdentity} ` +
+                    `[${account.sourceName}]`,
+                    error
+                )
+                this.log.warn(
+                    `Managed account ${account.name || account.nativeIdentity} will be removed from list ` +
+                    `despite form creation failure`
+                )
+                // Don't rethrow - allow the account to be silently removed from managed accounts
+                // by not adding it to fusionAccountMap (form creation failed, so we skip this account)
+            }
         } else {
-            this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
+            this.log.debug(
+                `Account ${account.name || account.nativeIdentity} [${account.sourceName}] is not a duplicate, ` +
+                `adding to fusion accounts`
+            )
             await this.attributes.refreshUniqueAttributes(fusionAccount)
             const key = this.attributes.getSimpleKey(fusionAccount)
+            assert(key, 'Failed to generate key for fusion account')
+
             fusionAccount.setKey(key)
 
             // Use setter method to add to appropriate map
