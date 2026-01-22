@@ -5,6 +5,22 @@
  * Provides common date functions for use in Velocity templates
  */
 
+// Compile RegExp patterns once at module level for better performance
+const TOKEN_PATTERNS: Record<string, RegExp> = {
+    'yyyy': /yyyy/g,
+    'yy': /yy/g,
+    'MM': /MM/g,
+    'M': /M/g,
+    'dd': /dd/g,
+    'd': /d/g,
+    'HH': /HH/g,
+    'H': /H/g,
+    'mm': /mm/g,
+    'm': /m/g,
+    'ss': /ss/g,
+    's': /s/g,
+}
+
 /**
  * Format a date to ISO string
  */
@@ -37,8 +53,9 @@ export function format(date: Date | string | number, formatStr?: string): string
     }
 
     let result = formatStr
+    // Use pre-compiled RegExp patterns for better performance
     for (const [token, value] of Object.entries(tokens)) {
-        result = result.replace(new RegExp(token, 'g'), value)
+        result = result.replace(TOKEN_PATTERNS[token], value)
     }
 
     return result

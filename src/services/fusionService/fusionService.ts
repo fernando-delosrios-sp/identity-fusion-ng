@@ -168,9 +168,10 @@ export class FusionService {
         assert(managedAccountsMap, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
 
-        fusionAccount.listReviewerSources().forEach((sourceId) => {
+        // Use for...of instead of forEach for better performance
+        for (const sourceId of fusionAccount.listReviewerSources()) {
             this.setReviewerForSource(fusionAccount, sourceId)
-        })
+        }
 
         const identity = this.identities.getIdentityById(identityId)
         if (identity) {

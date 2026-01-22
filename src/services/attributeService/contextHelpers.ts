@@ -19,6 +19,34 @@ interface ParsedAddress {
 // Address Helpers (using city-state for US cities)
 // ============================================================================
 
+// Cache for US cities to avoid repeated filtering
+// Key: lowercase city name, Value: { stateName, stateCode }
+const usCityCache = new Map<string, { stateName?: string; stateCode: string } | null>()
+
+// Pre-populate cache on first use
+let usCitiesCached = false
+const ensureUsCitiesCached = (): void => {
+    if (usCitiesCached) return
+
+    const usCities = City.getCitiesOfCountry('US')
+    if (!usCities) return
+
+    // Build a map of city name -> state info
+    for (const city of usCities) {
+        const key = city.name.toLowerCase()
+        // Only store first occurrence of each city name
+        if (!usCityCache.has(key)) {
+            const state = State.getStateByCodeAndCountry(city.stateCode, 'US')
+            usCityCache.set(key, {
+                stateName: state?.name,
+                stateCode: city.stateCode
+            })
+        }
+    }
+
+    usCitiesCached = true
+}
+
 /**
  * Get state code from city name (US only)
  * @param city - City name (e.g., 'Seattle')
@@ -26,24 +54,22 @@ interface ParsedAddress {
  */
 const getCityState = (city: string): string | undefined => {
     if (!city) return undefined
-    // Get all US cities with this name
-    const cities = City.getCitiesOfCountry('US')?.filter(
-        c => c.name.toLowerCase() === city.trim().toLowerCase()
-    )
-    if (!cities || cities.length === 0) return undefined
-    // Return the state name of the first match
-    const stateCode = cities[0].stateCode
-    const state = State.getStateByCodeAndCountry(stateCode, 'US')
-    return state?.name
+
+    ensureUsCitiesCached()
+
+    const key = city.trim().toLowerCase()
+    const cached = usCityCache.get(key)
+    return cached?.stateName
 }
 
 const getCityStateCode = (city: string): string | undefined => {
     if (!city) return undefined
-    // Get all US cities with this name
-    const cities = City.getCitiesOfCountry('US')?.filter(
-        c => c.name.toLowerCase() === city.trim().toLowerCase()
-    )
-    return cities && cities.length > 0 ? cities[0].stateCode : undefined
+
+    ensureUsCitiesCached()
+
+    const key = city.trim().toLowerCase()
+    const cached = usCityCache.get(key)
+    return cached?.stateCode
 }
 
 /**

@@ -1,9 +1,12 @@
 import { transliterate } from 'transliteration'
 import velocityjs from 'velocityjs'
 import { RenderContext } from 'velocityjs/dist/src/type'
-import { Datefns } from '../../utils/dateUtils'
 import { logger } from '@sailpoint/connector-sdk'
 import { contextHelpers } from './contextHelpers'
+
+// Cache for compiled Velocity templates to avoid repeated parsing
+// Key: template expression, Value: compiled template
+const templateCache = new Map<string, any>()
 
 /**
  * Normalize string by transliterating and removing special characters
@@ -43,6 +46,7 @@ export const switchCase = (str: string, caseType: 'lower' | 'upper' | 'capitaliz
 
 /**
  * Evaluate Velocity template expression with extended context (Math, Date, Datefns)
+ * Uses template caching to avoid repeated parsing and compilation
  */
 export const evaluateVelocityTemplate = (
     expression: string,
@@ -52,8 +56,16 @@ export const evaluateVelocityTemplate = (
     const extendedContext: RenderContext = { ...context, ...contextHelpers }
     logger.debug(`Evaluating velocity template - expression: ${expression}`)
 
-    const template = velocityjs.parse(expression)
-    const velocity = new velocityjs.Compile(template)
+    // Check cache for compiled template
+    let velocity = templateCache.get(expression)
+    if (!velocity) {
+        // Parse and compile template, then cache it
+        const template = velocityjs.parse(expression)
+        velocity = new velocityjs.Compile(template)
+        templateCache.set(expression, velocity)
+        logger.debug(`Compiled and cached new velocity template: ${expression}`)
+    }
+
     let result = velocity.render(extendedContext)
 
     if (maxLength && result.length > maxLength) {
