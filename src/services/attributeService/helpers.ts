@@ -11,17 +11,22 @@ export const isUniqueAttribute = (definition: AttributeDefinition): boolean => {
     return definition.type !== undefined && UNIQUE_ATTRIBUTE_TYPES.includes(definition.type as any)
 }
 
+// Pre-compiled regex for better performance
+const BRACKET_REGEX = /\[([^ ].+?)\]/g
+
 /**
  * Split attribute value that may contain bracketed values like [value1] [value2]
+ * Optimized to use pre-compiled regex and matchAll for better performance
  */
 export const attrSplit = (text: string): string[] => {
-    const regex = /\[([^ ].+)\]/g
     const set = new Set<string>()
-
-    let match = regex.exec(text)
-    while (match) {
-        set.add(match.pop() as string)
-        match = regex.exec(text)
+    
+    // Use matchAll for cleaner and potentially faster iteration
+    const matches = text.matchAll(BRACKET_REGEX)
+    for (const match of matches) {
+        if (match[1]) {
+            set.add(match[1])
+        }
     }
 
     return set.size === 0 ? [text] : [...set]

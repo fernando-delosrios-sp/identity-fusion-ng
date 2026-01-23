@@ -10,7 +10,7 @@ import { attrConcat, AttributeService } from '../attributeService'
 import { assert } from '../../utils/assert'
 import { pickAttributes } from '../../utils/attributes'
 import { createUrlContext, UrlContext } from '../../utils/url'
-import { mapValuesToArray } from '../../utils/collections'
+import { mapValuesToArray } from './collections'
 import { FusionDecision } from '../../model/form'
 import { ScoringService } from '../scoringService'
 import { SchemaService } from '../schemaService'
@@ -168,9 +168,10 @@ export class FusionService {
         assert(managedAccountsMap, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
 
-        fusionAccount.listReviewerSources().forEach((sourceId) => {
+        // Use for...of instead of forEach for better performance
+        for (const sourceId of fusionAccount.listReviewerSources()) {
             this.setReviewerForSource(fusionAccount, sourceId)
-        })
+        }
 
         const identity = this.identities.getIdentityById(identityId)
         if (identity) {

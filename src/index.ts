@@ -26,7 +26,7 @@ import { accountEnable } from './operations/accountEnable'
 import { accountDisable } from './operations/accountDisable'
 import { entitlementList } from './operations/entitlementList'
 import { accountDiscoverSchema } from './operations/accountDiscoverSchema'
-import { isProxyService, proxy } from './utils/proxy'
+import { isProxyMode, isProxyService, proxy } from './utils/proxy'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -37,7 +37,7 @@ export const connector = async () => {
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
             const isCustom = context.testConnection !== undefined
-            const isProxy = isProxyService(config)
+            const isProxy = isProxyMode(config)
             const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
             logger.info(`Running in ${runMode} mode`)
@@ -62,15 +62,13 @@ export const connector = async () => {
 
     const stdAccountList: StdAccountListHandler = async (context, input, res): Promise<void> => {
         const isCustom = context.accountList !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
+        const isProxyServer = isProxyService(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
-        const interval =
-            runMode === 'proxy'
-                ? undefined
-                : setInterval(() => {
-                    res.keepAlive()
-                }, config.processingWait)
+        const interval = isProxyServer ? undefined : setInterval(() => {
+            res.keepAlive()
+        }, config.processingWait)
 
         try {
             const serviceRegistry = new ServiceRegistry(config, context)
@@ -99,7 +97,7 @@ export const connector = async () => {
 
     const stdAccountRead: StdAccountReadHandler = async (context, input, res): Promise<void> => {
         const isCustom = context.accountRead !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
@@ -125,7 +123,7 @@ export const connector = async () => {
 
     const stdAccountCreate: StdAccountCreateHandler = async (context, input, res) => {
         const isCustom = context.accountCreate !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
@@ -155,7 +153,7 @@ export const connector = async () => {
 
     const stdAccountUpdate: StdAccountUpdateHandler = async (context, input, res) => {
         const isCustom = context.accountUpdate !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         const interval =
@@ -192,7 +190,7 @@ export const connector = async () => {
 
     const stdAccountEnable: StdAccountEnableHandler = async (context, input, res) => {
         const isCustom = context.accountEnable !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
@@ -219,7 +217,7 @@ export const connector = async () => {
 
     const stdAccountDisable: StdAccountDisableHandler = async (context, input, res) => {
         const isCustom = context.accountDisable !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
@@ -246,7 +244,7 @@ export const connector = async () => {
 
     const stdEntitlementList: StdEntitlementListHandler = async (context, input, res) => {
         const isCustom = context.entitlementList !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
@@ -273,7 +271,7 @@ export const connector = async () => {
 
     const stdAccountDiscoverSchema: StdAccountDiscoverSchemaHandler = async (context, input, res) => {
         const isCustom = context.accountDiscoverSchema !== undefined
-        const isProxy = isProxyService(config)
+        const isProxy = isProxyMode(config)
         const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {

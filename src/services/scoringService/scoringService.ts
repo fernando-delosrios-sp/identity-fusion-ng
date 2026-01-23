@@ -28,9 +28,10 @@ export class ScoringService {
     }
 
     public scoreFusionAccount(fusionAccount: FusionAccount, fusionIdentities: FusionAccount[]): void {
-        fusionIdentities.forEach((fusionIdentity) => {
+        // Use for...of instead of forEach for better performance in hot path
+        for (const fusionIdentity of fusionIdentities) {
             this.compareFusionAccounts(fusionAccount, fusionIdentity)
-        })
+        }
     }
 
     private compareFusionAccounts(

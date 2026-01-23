@@ -24,6 +24,7 @@ import { Candidate } from './types'
 import { buildCandidateList, buildFormName, calculateExpirationDate, getFormOwner } from './helpers'
 import { buildFormInput, buildFormFields, buildFormConditions, buildFormInputs } from './formBuilder'
 import { createFusionDecision } from './formProcessor'
+import { MAX_CANDIDATES_FOR_FORM } from './constants'
 
 // ============================================================================
 // FormService Class
@@ -662,10 +663,26 @@ export class FormService {
         fusionAccount: FusionAccount,
         candidates: Candidate[]
     ): Promise<FormDefinitionResponseV2025> {
+        assert(candidates.length <= MAX_CANDIDATES_FOR_FORM, `Candidates must be less than or equal to ${MAX_CANDIDATES_FOR_FORM}`)
         const formFields = buildFormFields(fusionAccount, candidates, this.fusionFormAttributes)
         const formInputs = buildFormInputs(fusionAccount, candidates, this.fusionFormAttributes)
         const formConditions = buildFormConditions(candidates, this.fusionFormAttributes)
         const owner = getFormOwner(this.sources)
+
+        // Validate form definition components before creating
+        this.log.debug(`Form definition validation: fields=${formFields.length}, inputs=${formInputs.length}, conditions=${formConditions.length}`)
+
+        assert(formFields && formFields.length > 0, 'Form fields must not be empty')
+        assert(formInputs && formInputs.length > 0, 'Form inputs must not be empty')
+        assert(owner, 'Form owner is required')
+        assert(owner.id, 'Form owner ID is required')
+        assert(owner.type, 'Form owner type is required')
+
+
+        // Warn if form definition is very large (may cause API issues)
+        if (formConditions.length > 500) {
+            this.log.warn(`Form has ${formConditions.length} conditions - this may cause API performance issues`)
+        }
 
         const formDefinition: CustomFormsV2025ApiCreateFormDefinitionRequest = {
             body: {
@@ -774,10 +791,29 @@ export class FormService {
         assert(customFormsApi, 'Custom forms API is required')
 
         this.log.debug(`Creating form definition: ${form.body.name}`)
+        this.log.debug(`Form has ${form.body.formElements?.length || 0} elements, ${form.body.formInput?.length || 0} inputs, ${form.body.formConditions?.length || 0} conditions`)
+
         const createFormDefinition = async () => {
-            const response = await customFormsApi.createFormDefinition(form)
-            return response.data
+            try {
+                this.log.debug(`Calling customFormsApi.createFormDefinition...`)
+                const response = await customFormsApi.createFormDefinition(form)
+                this.log.debug(`API call completed, processing response...`)
+                return response.data
+            } catch (error: any) {
+                this.log.error(`Error creating form definition: ${error}`)
+                // Log more details about the error including response body
+                if (error?.response?.data) {
+                    this.log.error(`API error response: ${JSON.stringify(error.response.data)}`)
+                }
+                if (error instanceof Error) {
+                    this.log.error(`Error message: ${error.message}`)
+                    this.log.error(`Error stack: ${error.stack}`)
+                }
+                throw error
+            }
         }
+
+        this.log.debug(`Executing form creation through client...`)
         const formInstance = await this.client.execute(createFormDefinition)
         assert(formInstance, 'Failed to create form definition')
         assert(formInstance.id, 'Form definition ID is missing')

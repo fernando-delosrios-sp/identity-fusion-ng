@@ -39,9 +39,8 @@ export const buildFormInput = (
     formInput.account = accountIdentifier
     formInput.source = fusionAccount.sourceName
     // Defaults for interactive decision fields
-    // Keep as string to align with definition input type constraints.
+    // Keep as string for newIdentity to align with TOGGLE element.
     formInput.newIdentity = 'false'
-    formInput.identities = ''
 
     // New identity attributes (flat keys for form elements)
     if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -54,6 +53,7 @@ export const buildFormInput = (
 
     // Candidate attributes and scores (flat keys for form elements)
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
         const candidateId = candidate.id
 
         if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -64,14 +64,23 @@ export const buildFormInput = (
             })
         }
 
-        // Add score inputs
-        if (candidate.scores && candidate.scores.length > 0) {
+        // Add score inputs with combined display format
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidate.scores.forEach((score: any) => {
-                if (score.type && score.value !== undefined) {
-                    formInput[`${candidateId}.${score.type}.score`] = String(score.value)
-                    if (score.threshold !== undefined) {
-                        formInput[`${candidateId}.${score.type}.threshold`] = String(score.threshold)
-                    }
+                if (!score || typeof score !== 'object') return
+                // ScoreReport structure: { attribute, algorithm, fusionScore, score, isMatch }
+                if (score.attribute && score.score !== undefined) {
+                    const attrKey = String(score.attribute).charAt(0).toLowerCase() + String(score.attribute).slice(1)
+                    const algorithmKey = String(score.algorithm ?? 'unknown')
+                    const scoreValue = Number(score.score)
+                    const thresholdValue = score.fusionScore
+
+                    // Format: "Score: X [Y]" where X is the score and Y is the threshold
+                    const displayValue = thresholdValue !== undefined && thresholdValue !== null
+                        ? `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'} [${thresholdValue}]`
+                        : `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'}`
+
+                    formInput[`${candidateId}.${attrKey}.${algorithmKey}.score`] = displayValue
                 }
             })
         }
@@ -207,6 +216,7 @@ export const buildFormFields = (
 
     // Candidate sections: one per candidate
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id || !candidate.name) return
         const candidateId = candidate.id
         const candidateElements: FormElementV2025[] = []
 
@@ -227,120 +237,50 @@ export const buildFormFields = (
             })
         }
 
-        // Add score section if scores exist
-        if (candidate.scores && candidate.scores.length > 0) {
-            const scoreElements: FormElementV2025[] = []
-            candidate.scores.forEach((score: any) => {
-                if (score.type && score.value !== undefined) {
-                    scoreElements.push({
-                        id: `${candidateId}.${score.type}.score`,
-                        key: `${candidateId}.${score.type}.score`,
-                        elementType: 'TEXT',
-                        config: {
-                            label: `${capitalizeFirst(score.type)} score`,
-                            default: String(score.value),
-                        },
-                        validations: [],
-                    })
-                    if (score.threshold !== undefined) {
-                        scoreElements.push({
-                            id: `${candidateId}.${score.type}.threshold`,
-                            key: `${candidateId}.${score.type}.threshold`,
-                            elementType: 'TEXT',
-                            config: {
-                                label: `${capitalizeFirst(score.type)} threshold`,
-                                default: String(score.threshold),
-                            },
-                            validations: [],
-                        })
-                    }
-                }
-            })
-
-            if (scoreElements.length > 0) {
-                // Group scores in a COLUMN_SET if we have multiple
-                if (scoreElements.length >= 2) {
-                    const columns: FormElementV2025[][] = []
-                    scoreElements.forEach((elem, index) => {
-                        if (index % 2 === 0) {
-                            columns.push([elem])
-                        } else {
-                            columns[columns.length - 1].push(elem)
-                        }
-                    })
-                    candidateElements.push({
-                        id: `${candidateId}.scoreSection`,
-                        key: `${candidateId}.scoreSection`,
-                        elementType: 'COLUMN_SET',
-                        config: {
-                            alignment: 'CENTER',
-                            columnCount: 2,
-                            columns: columns,
-                            label: 'Score',
-                            labelStyle: 'h5',
-                            showLabel: true,
-                        },
-                        validations: [],
-                    })
-                } else {
-                    candidateElements.push(...scoreElements)
-                }
-            }
-        }
-
-        // Add fusion score summary at the end (textarea, prefilled).
-        // Using `default` ensures it renders; `description` alone may not show in the UI.
-        if (candidate.scores && candidate.scores.length > 0) {
-            // ScoreReport shape: { attribute, algorithm, fusionScore (threshold), mandatory, score, isMatch, comment? }
-            // Be defensive and also accept older shapes (value/threshold/type) if present.
-            const scoreValues = candidate.scores
-                .map((s: any) => Number(s?.score ?? s?.value))
-                .filter((n: any) => Number.isFinite(n)) as number[]
-            const averageScore =
-                scoreValues.length > 0
-                    ? (scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length).toFixed(1)
-                    : 'N/A'
-
-            const factorLines = candidate.scores
-                .filter((s: any) => s && (s.score !== undefined || s.value !== undefined))
-                .map((s: any) => {
-                    const name = String(s.attribute ?? s.type ?? 'score')
-                    const algorithmKey = String(s.algorithm ?? 'unknown')
-                    const algorithm = ALGORITHM_LABELS[algorithmKey] ?? algorithmKey
-                    const value = s.score !== undefined ? Number(s.score) : Number(s.value)
-                    const thresholdRaw = s.fusionScore ?? s.threshold
-                    const thresholdPart =
-                        thresholdRaw !== undefined && thresholdRaw !== null
-                            ? ` (threshold: ${String(thresholdRaw)}%)`
-                            : ''
-                    const matchPart =
-                        s.isMatch !== undefined && s.isMatch !== null ? `, match: ${s.isMatch ? 'yes' : 'no'}` : ''
-                    const commentPart = s.comment ? ` - ${String(s.comment)}` : ''
-                    return `- ${name} [${algorithm}]: ${Number.isFinite(value) ? `${value}%` : String(s.score ?? s.value)}${thresholdPart}${matchPart}${commentPart}`
-                })
-
-            const summary = [
-                `Average fusion score: ${averageScore}% (based on ${scoreValues.length} scoring factor(s))`,
-                factorLines.length > 0 ? '' : undefined,
-                factorLines.length > 0 ? 'Factors:' : undefined,
-                ...factorLines,
-            ]
-                .filter((x): x is string => typeof x === 'string')
-                .join('\n')
-
+        // Add score details header and individual score display fields per check
+        // Each field shows: label = "AttributeName", helpText = "Algorithm", value = "Score: X [Y]"
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidateElements.push({
-                id: `${candidateId}.scoreSummary`,
-                key: `${candidateId}.scoreSummary`,
-                // SailPoint forms support TEXTAREA element type; treated as free-form text input.
-                // We prefill it so it acts like a read-only summary in practice.
-                elementType: 'TEXTAREA' as any,
+                id: `${candidateId}.scoreDetailsHeader`,
+                key: `${candidateId}.scoreDetailsHeader`,
+                elementType: 'DESCRIPTION',
                 config: {
-                    label: 'Fusion Score Summary',
-                    default: summary,
-                    rows: 10,
-                    resize: true,
+                    description:
+                        '<p style="text-align: center;"><span style="font-size: 18pt;"><strong>Fusion Score details</strong></span></p>',
+                    label: 'Fusion Score Details',
+                    showLabel: false,
                 },
                 validations: [],
+            })
+
+            candidate.scores.forEach((score: any) => {
+                if (!score || typeof score !== 'object') return
+                // ScoreReport structure: { attribute, algorithm, fusionScore, score, isMatch }
+                if (score.attribute && score.score !== undefined) {
+                    const attrName = String(score.attribute)
+                    const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                    const algorithmKey = String(score.algorithm ?? 'unknown')
+                    const algorithm = ALGORITHM_LABELS[algorithmKey] ?? algorithmKey
+                    const scoreValue = Number(score.score)
+                    const thresholdValue = score.fusionScore
+
+                    // Format: "Score: X [Y]" where X is the score and Y is the threshold
+                    const displayValue = thresholdValue !== undefined && thresholdValue !== null
+                        ? `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'} [${thresholdValue}]`
+                        : `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'}`
+
+                    candidateElements.push({
+                        id: `${candidateId}.${attrKey}.${algorithmKey}.score`,
+                        key: `${candidateId}.${attrKey}.${algorithmKey}.score`,
+                        elementType: 'TEXT',
+                        config: {
+                            label: capitalizeFirst(attrName),
+                            helpText: algorithm,
+                            default: displayValue,
+                        },
+                        validations: [],
+                    })
+                }
             })
         }
 
@@ -370,6 +310,11 @@ export const buildFormFields = (
  */
 export const buildFormConditions = (candidates: Candidate[], fusionFormAttributes?: string[]): any[] => {
     const formConditions: any[] = []
+
+    // Validate inputs to prevent malformed conditions
+    if (!candidates || !Array.isArray(candidates)) {
+        return formConditions
+    }
 
     // Disable all TEXT fields in the top section (new identity attributes)
     // Use a condition that's always true by checking newIdentity against itself
@@ -401,6 +346,7 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
 
     // Disable all TEXT fields for candidate attributes and scores
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
         const candidateId = candidate.id
 
         // Disable candidate attribute fields
@@ -431,11 +377,15 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
             })
         }
 
-        // Disable score fields
+        // Disable score display fields
         // Use a condition that's always true by checking newIdentity against an impossible value
-        if (candidate.scores && candidate.scores.length > 0) {
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidate.scores.forEach((score: any) => {
-                if (score.type && score.value !== undefined) {
+                if (!score || typeof score !== 'object') return
+                // ScoreReport structure: { attribute, algorithm, fusionScore, score, isMatch }
+                if (score.attribute && score.score !== undefined) {
+                    const attrKey = String(score.attribute).charAt(0).toLowerCase() + String(score.attribute).slice(1)
+                    const algorithmKey = String(score.algorithm ?? 'unknown')
                     formConditions.push({
                         ruleOperator: 'AND',
                         rules: [
@@ -451,66 +401,21 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
                             {
                                 effectType: 'DISABLE',
                                 config: {
-                                    element: `${candidateId}.${score.type}.score`,
+                                    element: `${candidateId}.${attrKey}.${algorithmKey}.score`,
                                 },
                             },
                         ],
                     })
-
-                    if (score.threshold !== undefined) {
-                        formConditions.push({
-                            ruleOperator: 'AND',
-                            rules: [
-                                {
-                                    sourceType: 'ELEMENT',
-                                    source: 'newIdentity',
-                                    operator: 'NE',
-                                    valueType: 'STRING',
-                                    value: '__NEVER_MATCH__',
-                                },
-                            ],
-                            effects: [
-                                {
-                                    effectType: 'DISABLE',
-                                    config: {
-                                        element: `${candidateId}.${score.type}.threshold`,
-                                    },
-                                },
-                            ],
-                        })
-                    }
                 }
-            })
-
-            // Disable scoreSummary TEXTAREA field
-            // Use a condition that's always true by checking newIdentity against an impossible value
-            formConditions.push({
-                ruleOperator: 'AND',
-                rules: [
-                    {
-                        sourceType: 'ELEMENT',
-                        source: 'newIdentity',
-                        operator: 'NE',
-                        valueType: 'STRING',
-                        value: '__NEVER_MATCH__',
-                    },
-                ],
-                effects: [
-                    {
-                        effectType: 'DISABLE',
-                        config: {
-                            element: `${candidateId}.scoreSummary`,
-                        },
-                    },
-                ],
             })
         }
     })
 
     // For each candidate, create a condition that hides its section when:
     // - newIdentity is true, OR
-    // - identities is not equal to the candidate's displayName (form condition evaluation uses displayName instead of ID)
+    // - identities is not equal to the candidate's displayName (form conditions use the label, not the value)
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id || !candidate.name) return
         formConditions.push({
             ruleOperator: 'OR',
             rules: [
@@ -587,17 +492,12 @@ export const buildFormInputs = (
 
     // Decision inputs (bound to interactive elements)
     // NOTE: SDK only supports STRING / ARRAY for definition inputs. Toggle still binds to this key.
+    // SELECT elements with dataSource don't need an input definition - they populate dynamically.
     formInputs.push({
         id: 'newIdentity',
         type: 'STRING',
         label: 'newIdentity',
         description: 'false',
-    })
-    formInputs.push({
-        id: 'identities',
-        type: 'STRING',
-        label: 'identities',
-        description: '',
     })
 
     // New identity attributes
@@ -616,6 +516,7 @@ export const buildFormInputs = (
 
     // Candidate attributes and scores
     candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
         const candidateId = candidate.id
 
         if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -631,24 +532,28 @@ export const buildFormInputs = (
             })
         }
 
-        // Add score inputs
-        if (candidate.scores && candidate.scores.length > 0) {
+        // Add score inputs with combined display format
+        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
             candidate.scores.forEach((score: any) => {
-                if (score.type && score.value !== undefined) {
+                if (!score || typeof score !== 'object') return
+                // ScoreReport structure: { attribute, algorithm, fusionScore, score, isMatch }
+                if (score.attribute && score.score !== undefined) {
+                    const attrKey = String(score.attribute).charAt(0).toLowerCase() + String(score.attribute).slice(1)
+                    const algorithmKey = String(score.algorithm ?? 'unknown')
+                    const scoreValue = Number(score.score)
+                    const thresholdValue = score.fusionScore
+
+                    // Format: "Score: X [Y]" where X is the score and Y is the threshold
+                    const displayValue = thresholdValue !== undefined && thresholdValue !== null
+                        ? `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'} [${thresholdValue}]`
+                        : `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'}`
+
                     formInputs.push({
-                        id: `${candidateId}.${score.type}.score`,
+                        id: `${candidateId}.${attrKey}.${algorithmKey}.score`,
                         type: 'STRING',
-                        label: `${candidateId}.${score.type}.score`,
-                        description: String(score.value),
+                        label: `${candidateId}.${attrKey}.${algorithmKey}.score`,
+                        description: displayValue,
                     })
-                    if (score.threshold !== undefined) {
-                        formInputs.push({
-                            id: `${candidateId}.${score.type}.threshold`,
-                            type: 'STRING',
-                            label: `${candidateId}.${score.type}.threshold`,
-                            description: String(score.threshold),
-                        })
-                    }
                 }
             })
         }
