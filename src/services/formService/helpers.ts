@@ -23,9 +23,7 @@ export const buildCandidateList = (fusionAccount: FusionAccount): Candidate[] =>
             id: match.fusionIdentity.identityId,
             // IMPORTANT: keep this aligned with the SELECT element's label path:
             // buildFormFields() uses SEARCH_V2 with label: 'attributes.displayName'
-            name: String(
-                attrs.displayName || match.fusionIdentity.displayName || match.fusionIdentity.name || 'Unknown'
-            ),
+            name: match.fusionIdentity.displayName ?? '',
             attributes: attrs,
             scores: match.scores || [],
         }

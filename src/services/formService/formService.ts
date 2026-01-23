@@ -799,9 +799,12 @@ export class FormService {
                 const response = await customFormsApi.createFormDefinition(form)
                 this.log.debug(`API call completed, processing response...`)
                 return response.data
-            } catch (error) {
+            } catch (error: any) {
                 this.log.error(`Error creating form definition: ${error}`)
-                // Log more details about the error
+                // Log more details about the error including response body
+                if (error?.response?.data) {
+                    this.log.error(`API error response: ${JSON.stringify(error.response.data)}`)
+                }
                 if (error instanceof Error) {
                     this.log.error(`Error message: ${error.message}`)
                     this.log.error(`Error stack: ${error.stack}`)
