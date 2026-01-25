@@ -30,6 +30,8 @@ export class FusionService {
     private fusionAccountMap: Map<string, FusionAccount> = new Map()
     // Managed accounts that were flagged as potential duplicates (forms created)
     private potentialDuplicateAccounts: FusionAccount[] = []
+    // All analyzed managed accounts (including non-matches)
+    private analyzedManagedAccounts: FusionAccount[] = []
     private _reviewersBySourceId: Map<string, Set<FusionAccount>> = new Map()
     private readonly sourcesByName: Map<string, SourceInfo> = new Map()
     private readonly reset: boolean
@@ -372,6 +374,9 @@ export class FusionService {
         const fusionAccount = await this.preProcessManagedAccount(account)
         this.scoring.scoreFusionAccount(fusionAccount, this.fusionIdentities)
 
+        // Track all analyzed managed accounts for reporting
+        this.analyzedManagedAccounts.push(fusionAccount)
+
         if (fusionAccount.isMatch) {
             this.log.debug(
                 `Account ${name} [${sourceName}] is a potential duplicate, creating fusion form`
@@ -520,7 +525,7 @@ export class FusionService {
     /**
      * Generate a fusion report with all accounts that have potential duplicates
      */
-    public generateReport(): FusionReport {
+    public generateReport(includeNonMatches: boolean = false): FusionReport {
         const accounts: FusionReportAccount[] = []
 
         // Report on the managed accounts that were flagged as potential duplicates (forms created)
@@ -553,13 +558,58 @@ export class FusionService {
             }
         }
 
+        // Include non-matches if requested
+        const nonMatchAccounts: FusionReportAccount[] = includeNonMatches
+            ? this.generateNonMatchAccounts()
+            : []
+
+        // Sort matches alphabetically by account name
+        accounts.sort((a, b) => a.accountName.localeCompare(b.accountName))
+
+        // Combine: matches first, then non-matches
+        const allAccounts = [...accounts, ...nonMatchAccounts]
+
         const potentialDuplicates = accounts.length
 
         return {
-            accounts,
+            accounts: allAccounts,
             totalAccounts: this.newManagedAccountsCount,
             potentialDuplicates,
             reportDate: new Date(),
         }
+    }
+
+    /**
+     * Generate non-match accounts for reporting
+     */
+    private generateNonMatchAccounts(): FusionReportAccount[] {
+        // Filter out accounts that are already in potentialDuplicateAccounts (matches)
+        const matchAccountIds = new Set(
+            this.potentialDuplicateAccounts.map(
+                (a) => a.managedAccountId ?? a.nativeIdentityOrUndefined
+            )
+        )
+
+        const nonMatchAccounts: FusionReportAccount[] = []
+
+        for (const fusionAccount of this.analyzedManagedAccounts) {
+            const accountId = fusionAccount.managedAccountId ?? fusionAccount.nativeIdentityOrUndefined
+            // Skip if this account is already included as a match
+            if (!matchAccountIds.has(accountId)) {
+                nonMatchAccounts.push({
+                    accountName: fusionAccount.name || fusionAccount.displayName || 'Unknown',
+                    accountSource: fusionAccount.sourceName,
+                    accountId,
+                    accountEmail: fusionAccount.email,
+                    accountAttributes: pickAttributes(fusionAccount.attributes as any, this.reportAttributes),
+                    matches: [], // Non-matches have no potential matches
+                })
+            }
+        }
+
+        // Sort non-matches alphabetically by account name
+        nonMatchAccounts.sort((a, b) => a.accountName.localeCompare(b.accountName))
+
+        return nonMatchAccounts
     }
 }

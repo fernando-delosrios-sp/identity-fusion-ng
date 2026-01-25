@@ -69,7 +69,7 @@ export const accountList = async (
             const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
             softAssert(fusionOwnerAccount, 'Fusion owner account not found')
             if (fusionOwnerAccount) {
-                await generateReport(fusionOwnerAccount, serviceRegistry)
+                await generateReport(fusionOwnerAccount, false, serviceRegistry)
             }
         }
 

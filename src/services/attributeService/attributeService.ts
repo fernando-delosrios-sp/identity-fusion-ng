@@ -176,17 +176,20 @@ export class AttributeService {
     public mapAttributes(fusionAccount: FusionAccount): void {
         const { attributeBag, needsRefresh } = fusionAccount
 
-        // Start with previous attributes as default
-        const attributes = { ...attributeBag.previous }
+        // Start with current attributes as default
+        const attributes = { ...attributeBag.current }
+
+        if (fusionAccount.type === 'identity') {
+            return
+        }
 
         const sourceAttributeMap = new Map(attributeBag.sources.entries())
-        if (fusionAccount.type === 'identity') {
-            sourceAttributeMap.set('identity', [attributeBag.identity])
+        const sourceOrder = this.sourceConfigs.map((sc) => sc.name)
+
+        for (const source of fusionAccount.sources) {
+            sourceAttributeMap.set(source, attributeBag.sources.get(source) ?? [])
+            sourceOrder.push(source)
         }
-        const sourceOrder =
-            fusionAccount.type === 'identity'
-                ? [...this.sourceConfigs.map((sc) => sc.name), 'identity']
-                : this.sourceConfigs.map((sc) => sc.name)
 
         // If refresh is needed, process source attributes in established order
         if ((needsRefresh || this.forceAttributeRefresh) && sourceAttributeMap.size > 0) {

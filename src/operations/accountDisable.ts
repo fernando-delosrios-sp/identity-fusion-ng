@@ -1,6 +1,6 @@
 import { Response, StdAccountDisableInput, StdAccountDisableOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { fetchFusionAccount } from './helpers/fetchFusionAccount'
+import { rebuildFusionAccount } from './helpers/rebuildFusionAccount'
 import { assert } from '../utils/assert'
 
 export const accountDisable = async (
@@ -18,7 +18,7 @@ export const accountDisable = async (
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
 
-        const fusionAccount = await fetchFusionAccount(input.identity, serviceRegistry)
+        const fusionAccount = await rebuildFusionAccount(input.identity, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
 
         log.debug(`Disabling fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)

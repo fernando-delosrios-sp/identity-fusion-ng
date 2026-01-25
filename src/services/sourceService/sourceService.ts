@@ -301,7 +301,10 @@ export class SourceService {
      */
     public async fetchManagedAccount(id: string): Promise<void> {
         const managedAccount = await this.fetchAccountById(id)
-        assert(managedAccount, 'Managed account not found')
+        if (!managedAccount) {
+            this.log.warn(`Managed account not found for id: ${id}`)
+            return
+        }
 
         this.managedAccountsById.set(managedAccount.id!, managedAccount)
     }
@@ -337,7 +340,7 @@ export class SourceService {
         }
 
         const accounts = await this.client.execute(listAccounts)
-        return accounts[0]
+        return accounts?.[0]
     }
 
     // ------------------------------------------------------------------------
@@ -357,7 +360,7 @@ export class SourceService {
     public async aggregateManagedSources(): Promise<void> {
         const managedSources = this.managedSources
         this.log.debug(`Checking aggregation status for ${managedSources.length} managed source(s)`)
-        
+
         // Parallelize aggregation checks for better performance
         const aggregationChecks = await Promise.all(
             managedSources.map(async (source) => {
@@ -410,7 +413,7 @@ export class SourceService {
         }
         const aggregations = await this.client.execute(searchPost)
 
-        const latestAggregation = getDateFromISOString(aggregations[0]?.created)
+        const latestAggregation = getDateFromISOString(aggregations?.[0]?.created)
 
         return latestAggregation
     }
@@ -432,7 +435,7 @@ export class SourceService {
             return response.data ?? []
         }
         const schemas = await this.client.execute(getSourceSchemas)
-        return schemas
+        return schemas ?? []
     }
 
     // ------------------------------------------------------------------------
@@ -442,7 +445,7 @@ export class SourceService {
     /**
      * Update source configuration
      */
-    public async patchSourceConfig(id: string, requestParameters: SourcesV2025ApiUpdateSourceRequest): Promise<Source> {
+    public async patchSourceConfig(id: string, requestParameters: SourcesV2025ApiUpdateSourceRequest): Promise<Source | undefined> {
         const { sourcesApi } = this.client
         const updateSource = async () => {
             const response = await sourcesApi.updateSource(requestParameters)
@@ -511,8 +514,13 @@ export class SourceService {
 
         let count = taskResultRetries
         while (--count > 0) {
+            const id = loadAccountsTask?.task?.id
+            if (!id) {
+                this.log.warn('Aggregation task ID not found')
+                break
+            }
             const requestParameters: TaskManagementV2025ApiGetTaskStatusRequest = {
-                id: loadAccountsTask.task?.id ?? '',
+                id,
             }
             const getTaskStatus = async () => {
                 const response = await taskManagementApi.getTaskStatus(requestParameters)
@@ -520,7 +528,7 @@ export class SourceService {
             }
             const taskStatus = await this.client.execute(getTaskStatus)
 
-            if (taskStatus.completed) {
+            if (taskStatus?.completed) {
                 completed = true
                 break
             } else {
