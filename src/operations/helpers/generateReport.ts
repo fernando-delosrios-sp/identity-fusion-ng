@@ -2,7 +2,7 @@ import { ServiceRegistry } from '../../services/serviceRegistry'
 import { FusionAccount } from '../../model/account'
 import { StandardCommand } from '@sailpoint/connector-sdk'
 
-export const generateReport = async (fusionAccount: FusionAccount, serviceRegistry?: ServiceRegistry) => {
+export const generateReport = async (fusionAccount: FusionAccount, includeNonMatches: boolean = false, serviceRegistry?: ServiceRegistry) => {
     if (!serviceRegistry) {
         serviceRegistry = ServiceRegistry.getCurrent()
     }
@@ -26,6 +26,6 @@ export const generateReport = async (fusionAccount: FusionAccount, serviceRegist
         await fusion.analyzeManagedAccounts()
     }
 
-    const report = fusion.generateReport()
+    const report = fusion.generateReport(includeNonMatches)
     await messaging.sendReport(report, fusionAccount)
 }

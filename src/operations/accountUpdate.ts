@@ -1,6 +1,6 @@
 import { Response, StdAccountUpdateInput, StdAccountUpdateOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { fetchFusionAccount } from './helpers/fetchFusionAccount'
+import { rebuildFusionAccount } from './helpers/rebuildFusionAccount'
 import { assert } from '../utils/assert'
 import { reportAction } from './actions/reportAction'
 import { fusionAction } from './actions/fusionAction'
@@ -24,7 +24,7 @@ export const accountUpdate = async (
         await schemas.setFusionAccountSchema(input.schema)
         log.debug('Fusion account schema set successfully')
 
-        const fusionAccount = await fetchFusionAccount(input.identity, serviceRegistry)
+        const fusionAccount = await rebuildFusionAccount(input.identity, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
 

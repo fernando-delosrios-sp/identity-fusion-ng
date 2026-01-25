@@ -181,11 +181,12 @@ export class ClientService {
     /**
      * Execute a single API function, optionally through the queue depending on configuration.
      * Returns the result directly as returned by the function (queue preserves the return type).
+     * Returns undefined and logs the error if the API call fails.
      */
     public async execute<TResponse>(
         apiFunction: () => Promise<TResponse>,
         priority: QueuePriority = QueuePriority.NORMAL
-    ): Promise<TResponse> {
+    ): Promise<TResponse | undefined> {
         const fn = () => {
             if (!this.requestTimeoutMs) {
                 return apiFunction()
@@ -201,11 +202,16 @@ export class ClientService {
             ])
         }
 
-        if (this.queue) {
-            return await this.queue.enqueue(() => fn(), { priority })
-        }
+        try {
+            if (this.queue) {
+                return await this.queue.enqueue(() => fn(), { priority })
+            }
 
-        return await fn()
+            return await fn()
+        } catch (error) {
+            this.log.error(`API request failed: ${error instanceof Error ? error.message : String(error)}`)
+            return undefined
+        }
     }
 
     /**

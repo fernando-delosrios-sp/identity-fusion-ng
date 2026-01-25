@@ -2,7 +2,7 @@ import { ServiceRegistry } from '../../services/serviceRegistry'
 import { assert } from '../../utils/assert'
 import { FusionAccount } from '../../model/account'
 
-export const fetchFusionAccount = async (
+export const rebuildFusionAccount = async (
     nativeIdentity: string,
     serviceRegistry?: ServiceRegistry
 ): Promise<FusionAccount> => {
@@ -24,8 +24,5 @@ export const fetchFusionAccount = async (
             await sources.fetchManagedAccount(id)
         })
     )
-    // Get the map reference to pass to processFusionAccount
-    const managedAccountsMap = sources.managedAccountsById
-    assert(managedAccountsMap, 'Managed accounts have not been loaded')
     return await fusion.processFusionAccount(account)
 }

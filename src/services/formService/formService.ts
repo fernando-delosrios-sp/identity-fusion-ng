@@ -426,7 +426,7 @@ export class FormService {
         }
 
         const formInstances = await this.client.execute(searchFormInstancesByTenant)
-        return formInstances
+        return formInstances ?? []
     }
 
     /**
@@ -435,7 +435,7 @@ export class FormService {
     public async setFormInstanceState(
         formInstanceID: string,
         state: FormInstanceResponseV2025StateV2025
-    ): Promise<FormInstanceResponseV2025> {
+    ): Promise<FormInstanceResponseV2025 | undefined> {
         const { customFormsApi } = this.client
 
         const body: { [key: string]: any }[] = [
@@ -523,6 +523,12 @@ export class FormService {
             }
         }
 
+        // Check if the managed account still exists - if not, delete the form
+        if (accountId && !this.managedAccountExists(accountId)) {
+            this.log.info(`Managed account ${accountId} no longer exists, marking form for deletion`)
+            shouldDeleteForm = true
+        }
+
         return {
             instancesToProcess,
             shouldDeleteForm,
@@ -557,6 +563,17 @@ export class FormService {
     }
 
     /**
+     * Check if a managed account still exists in the source
+     */
+    private managedAccountExists(accountId: string): boolean {
+        const managedAccountsMap = this.sources.managedAccountsById
+        if (!managedAccountsMap) {
+            return false
+        }
+        return managedAccountsMap.has(accountId)
+    }
+
+    /**
      * Process instance state and determine if it should be included
      */
     private processInstanceState(
@@ -587,7 +604,7 @@ export class FormService {
      * Extract account info override from managed accounts before deletion
      */
     private extractAccountInfoOverride(
-        accountId: string | undefined, keepAccount: boolean
+        accountId: string | undefined, shouldDeleteForm: boolean
     ): { id: string; name: string; sourceName: string } | undefined {
         if (!accountId) {
             return undefined
@@ -598,11 +615,14 @@ export class FormService {
 
         const account = managedAccountsMap.get(accountId)
         if (!account) {
+            // Account doesn't exist anymore, return undefined
+            // The form will be deleted due to missing account check in analyzeFormInstances
             return undefined
         }
 
-        // Delete after extracting info
-        if (!keepAccount) {
+        // Delete account from map only if form is being deleted (completed or cancelled)
+        // This prevents the account from being processed again in fusion logic
+        if (shouldDeleteForm) {
             managedAccountsMap.delete(accountId)
         }
 

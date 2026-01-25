@@ -230,6 +230,29 @@ export function extractArray<T = any>(attributes: Record<string, any>, key: stri
     return Array.isArray(value) ? value : []
 }
 
+/**
+ * Converts an array attribute to a Set, handling null/undefined attributes gracefully.
+ * Returns an empty Set if the attribute doesn't exist or is not an array.
+ *
+ * @param attributes - Source attribute object (can be null or undefined)
+ * @param key - Attribute key to extract
+ * @returns Set containing the array values, or empty Set if not found
+ *
+ * @example
+ * toSetFromAttribute({ tags: ['a', 'b', 'c'] }, 'tags')
+ * // Returns: Set(['a', 'b', 'c'])
+ *
+ * toSetFromAttribute(null, 'tags')
+ * // Returns: Set()
+ */
+export function toSetFromAttribute(
+    attributes: Record<string, any> | null | undefined,
+    key: string
+): Set<string> {
+    const value = attributes?.[key]
+    return new Set((Array.isArray(value) ? value : []) as string[])
+}
+
 // ============================================================================
 // Identity/Account Attribute Helpers
 // ============================================================================

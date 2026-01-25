@@ -8,6 +8,6 @@ import { generateReport } from '../helpers/generateReport'
  */
 export const reportAction = async (fusionAccount: FusionAccount, op: AttributeChangeOp): Promise<void> => {
     if (op === AttributeChangeOp.Add) {
-        await generateReport(fusionAccount)
+        await generateReport(fusionAccount, true)
     }
 }

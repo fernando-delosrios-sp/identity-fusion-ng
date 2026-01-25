@@ -403,6 +403,8 @@ export class MessagingService {
 
         const workflows = await this.client.execute(listWorkflows)
 
+        assert(workflows, `Failed to list workflows: ${workflowName}`)
+
         const workflow = workflows.data.find((w) => w.name === workflowName)
 
         return workflow
