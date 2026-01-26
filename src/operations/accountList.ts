@@ -60,8 +60,8 @@ export const accountList = async (
         identities.clear()
         log.debug('Identities cache cleared')
 
-        log.debug('Processing identity fusion decisions and managed accounts')
-        await fusion.processIdentityFusionDecisions()
+        log.debug('Processing Fusion identity decisions and managed accounts')
+        await fusion.processFusionIdentityDecisions()
         await fusion.processManagedAccounts()
 
         if (fusion.fusionReportOnAggregation) {
