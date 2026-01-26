@@ -179,8 +179,10 @@ export class FusionService {
         if (identity) {
             fusionAccount.addIdentityLayer(identity)
 
-            const fusionDecision = this.forms.getAssignmentFusionDecision(identityId)
-            fusionAccount.addFusionDecisionLayer(fusionDecision)
+            const fusionDecision = this.forms.getFusionAssignmentDecision(identityId)
+            if (fusionDecision) {
+                fusionAccount.addFusionDecisionLayer(fusionDecision)
+            }
         }
 
         // Pass the captured map reference directly
@@ -261,8 +263,8 @@ export class FusionService {
     /**
      * Process all identity fusion decisions
      */
-    public async processIdentityFusionDecisions(): Promise<void> {
-        const identityFusionDecisions = this.forms.getIdentityFusionDecisions()
+    public async processFusionIdentityDecisions(): Promise<void> {
+        const { fusionIdentityDecisions: identityFusionDecisions } = this.forms
         this.log.info(`Processing ${identityFusionDecisions.length} identity fusion decision(s)`)
 
         // First, populate reviewer reviews from pending (unfinished) decisions that have form URLs.

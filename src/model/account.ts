@@ -52,7 +52,7 @@ export class FusionAccount {
     private _actions: Set<string> = new Set()
     private _reviews: Set<string> = new Set()
     private _sources: Set<string> = new Set()
-    private _previousAccountIds: Set<string> = new Set()
+    // private _previousAccountIds: Set<string> = new Set()
     private _correlationPromises: Array<Promise<unknown>> = []
     private _pendingReviewUrls: Set<string> = new Set()
     private _reviewPromises: Array<Promise<string | undefined>> = []
@@ -163,16 +163,10 @@ export class FusionAccount {
         fusionAccount._identityId = account.identityId ?? undefined
 
         // Initialize collections
+        fusionAccount._missingAccountIds = attributeToSet(account.attributes, 'accounts')
         fusionAccount._reviews = attributeToSet(account.attributes, 'reviews')
         fusionAccount._statuses = attributeToSet(account.attributes, 'statuses')
         fusionAccount._actions = attributeToSet(account.attributes, 'actions')
-        fusionAccount._previousAccountIds = attributeToSet(account.attributes, 'accounts')
-
-        // Set status flags
-        if (account.uncorrelated) {
-            fusionAccount.setUncorrelated()
-        }
-
         return fusionAccount
     }
 
@@ -206,13 +200,14 @@ export class FusionAccount {
             needsRefresh: true,
         })
 
-        fusionAccount._previousAccountIds.add(account.id!)
         fusionAccount._managedAccountId = account.id
+        fusionAccount._missingAccountIds = attributeToSet(account.attributes, 'accounts')
         fusionAccount._statuses = attributeToSet(account.attributes, 'statuses')
         fusionAccount._actions = attributeToSet(account.attributes, 'actions')
         fusionAccount._reviews = attributeToSet(account.attributes, 'reviews')
         fusionAccount.setUnmatched()
         fusionAccount.setUncorrelated()
+        fusionAccount.setUncorrelatedAccount(account.id!)
 
         return fusionAccount
     }
@@ -698,7 +693,7 @@ export class FusionAccount {
      */
     private shouldProcessAccount(id: string, account: Account): boolean {
         return (
-            this._previousAccountIds.has(id) ||
+            this._missingAccountIds.has(id) ||
             (this._identityId !== undefined && account.identityId === this._identityId)
         )
     }
@@ -716,16 +711,13 @@ export class FusionAccount {
         }
     }
 
-    public addFusionDecisionLayer(decision?: FusionDecision): void {
-        if (!decision) return
-
-        this._previousAccountIds.add(decision.account.id!)
+    public addFusionDecisionLayer(decision: FusionDecision): void {
+        this.setUncorrelatedAccount(decision.account.id!)
 
         if (decision.newIdentity) {
             this.setManual(decision)
         } else {
             this.setAuthorized(decision)
-            this._identityId = decision.identityId ?? undefined
         }
     }
 
@@ -735,23 +727,19 @@ export class FusionAccount {
 
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
+        const isIdentity = !account.uncorrelated
         const isNewAccount = !this._accountIds.has(accountId)
-        const isCorrelated = this._identityId && account.identityId === this._identityId
 
         if (isNewAccount) {
-            this._accountIds.add(accountId)
+            this.setNeedsRefresh(true)
+        }
 
-            // Check if the account is already correlated (has the same identityId)
-            if (isCorrelated) {
-                // Account is already correlated - mark as correlated, not missing
+        if (isIdentity) {
+            if (isNewAccount) {
                 this.setCorrelatedAccount(accountId)
-            } else {
-                // Account is not correlated yet - mark as uncorrelated/missing
-                this.setUncorrelatedAccount(accountId)
             }
-        } else if (isCorrelated && this._missingAccountIds.has(accountId)) {
-            // Account was previously uncorrelated but is now correlated - update status
-            this.setCorrelatedAccount(accountId)
+        } else {
+            this.setUncorrelatedAccount(accountId)
         }
 
         if (!this._needsRefresh) {
@@ -770,6 +758,9 @@ export class FusionAccount {
             this._attributeBag.sources.set(account.sourceName, existingSourceAccounts)
             this._attributeBag.accounts.push(account.attributes ?? {})
         }
+    }
+    private setNeedsRefresh(refresh: boolean) {
+        this._needsRefresh = refresh
     }
 
     // ============================================================================
@@ -792,8 +783,8 @@ export class FusionAccount {
     private setUncorrelatedAccount(accountId?: string): void {
         if (!accountId) return
 
-        this._accountIds.add(accountId)
-        this._missingAccountIds.add(accountId)
+        this.addAccountId(accountId)
+        this.addMissingAccountId(accountId)
         this.setUncorrelatedStatus()
     }
 
@@ -856,17 +847,11 @@ export class FusionAccount {
     }
 
     public setCorrelatedAccount(accountId: string, promise?: Promise<unknown>): void {
+        this.addAccountId(accountId)
+        this.removeMissingAccountId(accountId)
         if (promise) {
-            this._correlationPromises.push(promise)
+            this.addCorrelationPromise(accountId, promise)
         }
-
-        // Remove from missing accounts list and log if successful
-        const wasRemoved = this._missingAccountIds.delete(accountId)
-        if (wasRemoved) {
-            this.addHistory(`Missing account ${accountId} correlated`)
-        }
-
-        // Note: Status/action update happens after all correlation promises resolve in getISCAccount
     }
 
     public addCorrelationPromise(accountId: string, promise: Promise<unknown>): void {

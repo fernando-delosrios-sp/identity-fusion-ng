@@ -36,7 +36,7 @@ import { MAX_CANDIDATES_FOR_FORM } from './constants'
  */
 export class FormService {
     private formsToDelete: string[] = []
-    private fusionIdentityDecisions?: FusionDecision[]
+    private _fusionIdentityDecisions?: FusionDecision[]
     private fusionAssignmentDecisionMap: Map<string, FusionDecision> = new Map()
     private readonly fusionFormNamePattern: string
     private readonly fusionFormExpirationDays: number
@@ -70,7 +70,7 @@ export class FormService {
         this.log.debug('Fetching form data')
         assert(this.fusionFormNamePattern, 'Fusion form name pattern is required')
 
-        this.fusionIdentityDecisions = []
+        this._fusionIdentityDecisions = []
         this.fusionAssignmentDecisionMap = new Map()
 
         const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
@@ -94,7 +94,7 @@ export class FormService {
             }
         }
 
-        const fusionDecisionsCount = this.fusionIdentityDecisions?.length ?? 0
+        const fusionDecisionsCount = this._fusionIdentityDecisions?.length ?? 0
         this.log.debug(`Form data fetch completed - ${fusionDecisionsCount} fusion decision(s)`)
     }
 
@@ -387,25 +387,25 @@ export class FormService {
     /**
      * Get all fusion identity decisions
      */
-    public getIdentityFusionDecisions(): FusionDecision[] {
-        assert(this.fusionIdentityDecisions, 'Fusion identity decisions not fetched')
-        return this.fusionIdentityDecisions
+    public get fusionIdentityDecisions(): FusionDecision[] {
+        assert(this._fusionIdentityDecisions, 'Fusion identity decisions not fetched')
+        return this._fusionIdentityDecisions
     }
 
     /**
      * Get fusion decision for a specific identity UID
      */
-    public getIdentityFusionDecision(identityUid: string): FusionDecision | undefined {
-        if (!this.fusionIdentityDecisions) {
+    public getFusionIdentityDecision(identityUid: string): FusionDecision | undefined {
+        if (!this._fusionIdentityDecisions) {
             return undefined
         }
-        return this.fusionIdentityDecisions.find((decision) => decision.account.id === identityUid)
+        return this._fusionIdentityDecisions.find((decision) => decision.account.id === identityUid)
     }
 
     /**
      * Get assignment fusion decision for an identity ID
      */
-    public getAssignmentFusionDecision(identityId: string): FusionDecision | undefined {
+    public getFusionAssignmentDecision(identityId: string): FusionDecision | undefined {
         return this.fusionAssignmentDecisionMap.get(identityId)
     }
 
@@ -468,7 +468,7 @@ export class FormService {
      * Process fusion form instances and extract decisions
      */
     private processFusionFormInstances(formInstances: FormInstanceResponseV2025[]): void {
-        assert(this.fusionIdentityDecisions, 'Fusion identity decisions array is not initialized')
+        assert(this._fusionIdentityDecisions, 'Fusion identity decisions array is not initialized')
         assert(this.fusionAssignmentDecisionMap, 'Fusion assignment decision map is not initialized')
         assert(formInstances, 'Form instances array is required')
 
@@ -620,9 +620,7 @@ export class FormService {
             return undefined
         }
 
-        // Delete account from map only if form is being deleted (completed or cancelled)
-        // This prevents the account from being processed again in fusion logic
-        if (shouldDeleteForm) {
+        if (!shouldDeleteForm) {
             managedAccountsMap.delete(accountId)
         }
 
@@ -650,15 +648,16 @@ export class FormService {
                 continue
             }
 
-            this.fusionIdentityDecisions!.push(decision)
+            if (decision.finished) {
+                if (decision.newIdentity) {
+                    this._fusionIdentityDecisions!.push(decision)
+                } else {
+                    this.fusionAssignmentDecisionMap!.set(decision.identityId!, decision)
+                }
 
-            // Populate assignment decision map keyed by identityId (the identity the account is assigned to)
-            if (decision.identityId && decision.finished) {
-                this.fusionAssignmentDecisionMap!.set(decision.identityId, decision)
+                decisionsAdded++
+                this.logFusionDecision(decision)
             }
-
-            decisionsAdded++
-            this.logFusionDecision(decision)
         }
 
         return decisionsAdded
