@@ -27,11 +27,11 @@ export class AttributeService {
     private _attributeMappingConfig?: Map<string, AttributeMappingConfig>
     private attributeDefinitionConfig: AttributeDefinition[] = []
     private stateWrapper?: StateWrapper
+    private forceAttributeRefresh: boolean
     private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly sourceConfigs: SourceConfig[]
     private readonly maxAttempts?: number
-    private readonly forceAttributeRefresh: boolean
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -115,6 +115,10 @@ export class AttributeService {
      */
     public setStateWrapper(state: any): void {
         this.stateWrapper = new StateWrapper(state, this.locks)
+    }
+
+    public enableAttributeRefresh(): void {
+        this.forceAttributeRefresh = true
     }
 
     /**

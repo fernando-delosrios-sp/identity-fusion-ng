@@ -192,7 +192,8 @@ export class FusionService {
 
         // Correlate missing accounts if correlateOnAggregation is enabled and there are missing accounts
         // Status/action will be updated after correlation promises resolve in getISCAccount
-        if (this.correlateOnAggregation && fusionAccount.missingAccountIds.length > 0) {
+        const correlate = this.correlateOnAggregation && this.commandType === StandardCommand.StdAccountList
+        if (correlate && fusionAccount.missingAccountIds.length > 0) {
             await this.identities.correlateAccounts(fusionAccount)
         }
 

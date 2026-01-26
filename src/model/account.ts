@@ -127,6 +127,9 @@ export class FusionAccount {
         }
         if (config.attributes !== undefined) {
             this._attributeBag.current = { ...(config.attributes ?? {}) }
+            if (config.type === 'fusion') {
+                this._attributeBag.previous = { ...(config.attributes ?? {}) }
+            }
         }
     }
 
@@ -145,6 +148,7 @@ export class FusionAccount {
 
         // Initialize common properties
         fusionAccount.initializeBasicProperties({
+            type: 'fusion',
             name: account.name,
             sourceName: account.sourceName,
             disabled: account.disabled,
