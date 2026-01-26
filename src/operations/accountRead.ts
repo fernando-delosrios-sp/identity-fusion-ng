@@ -9,7 +9,7 @@ export const accountRead = async (
     res: Response<StdAccountReadOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion, schemas, sources } = serviceRegistry
+    const { log, fusion, schemas, sources, attributes } = serviceRegistry
 
     try {
         log.info(`Reading account ${input.identity}...`)
@@ -17,6 +17,7 @@ export const accountRead = async (
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
+        attributes.enableAttributeRefresh()
 
         const fusionAccount = await rebuildFusionAccount(input.identity, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
