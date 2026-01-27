@@ -188,7 +188,9 @@ export class FusionService {
         // Pass the captured map reference directly
         fusionAccount.addManagedAccountLayer(managedAccountsMap)
 
-        await this.attributes.registerUniqueAttributes(fusionAccount)
+        if (this.commandType === StandardCommand.StdAccountList) {
+            await this.attributes.registerUniqueAttributes(fusionAccount)
+        }
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshNonUniqueAttributes(fusionAccount)
 

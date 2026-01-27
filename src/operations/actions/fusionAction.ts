@@ -5,9 +5,13 @@ import { ServiceRegistry } from '../../services/serviceRegistry'
 /**
  * Placeholder function for fusion action
  * Creates a fusion account
+ * @param serviceRegistry - Request-scoped registry (required for concurrent updates to avoid global state)
  */
-export const fusionAction = async (fusionAccount: FusionAccount, op: AttributeChangeOp): Promise<void> => {
-    const serviceRegistry = ServiceRegistry.getCurrent()
+export const fusionAction = async (
+    fusionAccount: FusionAccount,
+    op: AttributeChangeOp,
+    serviceRegistry: ServiceRegistry
+): Promise<void> => {
     const { log } = serviceRegistry
 
     log.debug(`Fusion action called for account ${fusionAccount.name} with operation ${op}`)

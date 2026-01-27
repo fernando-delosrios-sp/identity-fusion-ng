@@ -6,7 +6,7 @@ import { LockService } from '../lockService'
 // ============================================================================
 
 /**
- * Wrapper for managing stateful counters across connector runs
+ * Wrapper for managing counter state across connector runs
  */
 export class StateWrapper {
     state: Map<string, number> = new Map()

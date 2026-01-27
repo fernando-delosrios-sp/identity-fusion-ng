@@ -1,10 +1,29 @@
+import { logger } from '@sailpoint/connector-sdk'
 import { Datefns } from './dateUtils'
 import parse from 'any-date-parser'
-import { parsePhoneNumberFromString } from 'libphonenumber-js'
+import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js'
 import { State, City } from './geoData'
 // @ts-expect-error - no types available
 import parseAddressString from 'parse-address-string'
 import { capitalizeFirst } from '../../utils'
+
+/**
+ * Wraps a Normalize helper that may return undefined. When it does, logs and returns ''
+ * so Velocity renders nothing instead of the raw expression.
+ */
+function withNormalizeFallback<T extends (...args: any[]) => string | undefined>(
+    helperName: string,
+    fn: T
+): (...args: Parameters<T>) => string {
+    return (...args: Parameters<T>): string => {
+        const result = fn(...args)
+        if (result === undefined) {
+            logger.debug(`Normalize.${helperName} returned undefined for input: ${JSON.stringify(args[0])}`)
+            return ''
+        }
+        return result
+    }
+}
 
 interface ParsedAddress {
     street_address1?: string
@@ -94,8 +113,8 @@ const normalizeDate = (date: string): string | undefined => {
     return parse.fromAny(date).toISOString()
 }
 
-const normalizePhoneNumber = (phone: string): string | undefined => {
-    return parsePhoneNumberFromString(phone)?.formatInternational()
+const normalizePhoneNumber = (phone: string, defaultCountry: CountryCode = 'US'): string | undefined => {
+    return parsePhoneNumberFromString(phone, defaultCountry)?.formatInternational()
 }
 
 /**
@@ -226,12 +245,12 @@ const AddressParse = {
 }
 
 const Normalize = {
-    date: normalizeDate,
-    phone: normalizePhoneNumber,
-    name: properCaseName,
-    fullName: normalizeFullName,
-    ssn: normalizeSSN,
-    address: normalizeAddress
+    date: withNormalizeFallback('date', normalizeDate),
+    phone: withNormalizeFallback('phone', normalizePhoneNumber),
+    name: withNormalizeFallback('name', properCaseName),
+    fullName: withNormalizeFallback('fullName', normalizeFullName),
+    ssn: withNormalizeFallback('ssn', normalizeSSN),
+    address: withNormalizeFallback('address', normalizeAddress)
 }
 
 export const contextHelpers = { Datefns, Math, AddressParse, Normalize }

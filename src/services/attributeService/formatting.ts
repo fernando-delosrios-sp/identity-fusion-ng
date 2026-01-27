@@ -72,6 +72,11 @@ export const evaluateVelocityTemplate = (
         result = truncateResultToMaxLength(result, expression, extendedContext, maxLength)
     }
 
+    if (result === '') {
+        logger.debug('Velocity template evaluated to empty string (e.g. Normalize helper returned undefined), returning undefined')
+        return undefined
+    }
+
     logger.debug(`Velocity template evaluation result: ${result}`)
     return result
 }
