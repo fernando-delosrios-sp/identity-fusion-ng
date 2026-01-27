@@ -168,7 +168,6 @@ export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSetti
 // Developer Settings Section
 export interface DeveloperSettingsSection {
     reset: boolean
-    provisioningTimeout?: number
     externalLoggingEnabled: boolean
     externalLoggingUrl?: string
     externalLoggingLevel?: 'error' | 'warn' | 'info' | 'debug'
@@ -176,6 +175,11 @@ export interface DeveloperSettingsSection {
 
 // Advanced Connection Settings Section
 export interface AdvancedConnectionSettingsSection {
+    /**
+     * Maximum time in seconds to wait for provisioning operations to complete.
+     */
+    provisioningTimeout?: number
+
     /**
      * Enable queue management for API requests.
      */
