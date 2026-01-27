@@ -229,7 +229,7 @@ What type of attribute are you comparing?
 
 ### Custom (from SaaS customizer)
 
-**Purpose:** Domain-specific matching logic implemented in SaaS customizer.
+**Purpose:** Domain-specific matching logic implemented in a [SailPoint SaaS Connectivity Customizer](https://developer.sailpoint.com/docs/connectivity/saas-connectivity/customizers).
 
 **When to use:**
 - None of the built-in algorithms fit your needs
@@ -238,7 +238,7 @@ What type of attribute are you comparing?
 - Complex business rules (e.g., "match if first 3 chars + last 2 chars identical")
 
 **Implementation:**
-- Develop custom algorithm in SaaS customizer
+- Develop custom algorithm in a [Connectivity Customizer](https://developer.sailpoint.com/docs/connectivity/saas-connectivity/customizers)
 - Return similarity score 0–100
 - Configure as "Custom" in Fusion attribute match
 
@@ -260,7 +260,7 @@ For each **Fusion attribute match**, configure:
 | **Attribute** | Identity attribute name to compare | Must exist on identities in scope; examples: `name`, `email`, `firstname`, `lastname`, `displayName` |
 | **Matching algorithm** | Algorithm to calculate similarity | Enhanced Name Matcher, Jaro-Winkler, Dice, Double Metaphone, Custom |
 | **Similarity score [0-100]** | Minimum score for this attribute | Per-attribute threshold (optional if using overall score mode) |
-| **Mandatory match?** | Require this attribute to match | Yes = attribute must participate and pass threshold; No = optional |
+| **Mandatory match?** | Require this attribute to match | Yes = this attribute must meet its threshold or match fails; when no attribute is mandatory, all attributes are treated as mandatory |
 
 ### Single attribute vs multi-attribute matching
 
@@ -309,9 +309,11 @@ Configuration 4: Comprehensive (overall score)
 
 **Logic:**
 - Each attribute match has its own **Similarity score [0-100]** threshold
+- A **mandatory** attribute must always meet or exceed its threshold or the match fails
 - Identity is flagged as potential duplicate if:
-  - All attributes meet their thresholds (if no mandatory)
-  - OR all mandatory attributes pass AND optional attributes contribute
+  - Every mandatory attribute meets its threshold, and
+  - When no attribute is marked mandatory: **all** attributes are treated as mandatory (all must meet their thresholds)
+  - When at least one attribute is mandatory: those must pass; non-mandatory attributes contribute to the match but their thresholds are also enforced for a pass
 
 **Advantages:**
 - Fine control per attribute
@@ -343,6 +345,7 @@ Result: Match (email passed, name optional)
 **Logic:**
 - Average of all attribute similarity scores → overall score
 - Identity is flagged if overall score ≥ global **Similarity score [0-100]**
+- When average is enabled, only the overall threshold must be met; individual (non-mandatory) attribute thresholds may not be met
 
 **Advantages:**
 - Simple to understand and configure
@@ -440,10 +443,7 @@ Overall: (95 + 95 + 50) / 3 = 80 → Pass (≥80)
 | Review burden is high (>50 forms/week) | You want manual approval for all merges |
 | Obvious duplicates are common | Data quality is poor |
 
-**Typical score for auto-correlation:**
-- Overall score ≥ 95 (very high confidence)
-- All attributes scoring ≥ 90
-- Example: Name 98, Email 100, Phone 96 → Auto-correlate
+**When auto-correlation runs:** When **Automatically correlate if identical?** is enabled, the connector skips the review form and performs the Fusion assignment directly when **all** attribute similarity scores for the best match are **100** (perfect match). No manual review is required in that case.
 
 ---
 
