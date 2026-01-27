@@ -1,4 +1,21 @@
-# Place screenshots here. Filenames referenced in the guides:
+# Place screenshots here. Filenames referenced in the documentation:
+
+# README.md - Configuration at a glance screenshots:
+# - config-connection-settings.png
+# - config-source-settings.png
+# - config-source-scope.png
+# - config-source-sources.png
+# - config-source-processing.png
+# - config-attribute-mapping.png
+# - config-attribute-definition.png
+# - config-fusion-settings.png
+# - config-fusion-matching.png
+# - config-fusion-review.png
+# - config-advanced-developer.png
+# - config-advanced-connection.png
+# - config-advanced-proxy.png
+
+# Usage guides screenshots:
 # - attribute-generation-source-settings.png
 # - attribute-generation-attribute-mapping.png
 # - attribute-generation-attribute-definition.png
