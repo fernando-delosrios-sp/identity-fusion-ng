@@ -8,7 +8,7 @@ Identity Fusion NG is an Identity Security Cloud (ISC) connector that addresses 
 
 3. **Attribute management** — Creating, normalizing, and combining attributes from multiple sources is complex. The connector provides powerful attribute generation using Apache Velocity templates with access to advanced utilities (date manipulation, address parsing, normalization), flexible merging strategies when multiple sources contribute to the same attribute (first found, list, concatenate, or source preference), and support for unique, UUID, counter-based, and computed attributes with collision handling.
 
-You can use **attribute generation**, **deduplication**, and **attribute management** independently or together. The connector does not have to be authoritative when used only for attribute generation; for deduplication, one or more sources are required.
+You can use **attribute generation**, **deduplication**, and **attribute management** independently or together. For **deduplication**, the Identity Fusion NG source should be **authoritative** in most cases—so it can determine which incoming managed accounts create a new identity and which correlate to an existing one. For **attribute generation only** (unique IDs, calculated or consolidated attributes), Fusion is rarely configured as authoritative; adding managed account sources is optional and depends on your attribute management requirements.
 
 ---
 
@@ -16,7 +16,8 @@ You can use **attribute generation**, **deduplication**, and **attribute managem
 
 | Topic                                                                           | Description                                                                                                                     |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| [Identity Fusion for attribute generation](docs/guides/attribute-generation.md) | Generate unique or combined attributes from identities, sources, or both. Identity Fusion does not need to be authoritative.    |
+| [Migration from previous Identity Fusion](docs/guides/migration-from-previous-fusion.md) | Migrate from an earlier Identity Fusion version: add the old source as managed, align schemas, then migrate identities via a higher-priority profile and identity refresh. |
+| [Identity Fusion for attribute generation](docs/guides/attribute-generation.md) | Generate unique or combined attributes from identities, sources, or both. Fusion is rarely authoritative in this mode; managed sources are optional. |
 | [Identity Fusion for deduplication](docs/guides/deduplication.md)               | Detect and resolve potential duplicate identities using one or more sources; identities optional but recommended as a baseline. |
 | [Matching algorithms](docs/guides/matching-algorithms.md)                       | Choose and tune algorithms for similarity scoring (e.g. names, short text, phonetics).                                          |
 | [Attribute management](docs/guides/attribute-management.md)                     | Attribute mapping, merging from multiple sources, and attribute definitions (Velocity, unique, UUID, counters).                 |
@@ -44,6 +45,8 @@ Authentication and connectivity to the ISC APIs.
 | **Personal Access Token ID**        | Client ID from your PAT     | Yes      | Must have required API permissions for sources, identities, accounts, workflows/forms |
 | **Personal Access Token secret**    | Client secret from your PAT | Yes      | Keep secure; rotate as needed                                                         |
 
+For API request retries, requests per second, and queue settings, see **Advanced Settings**.
+
 ### Source Settings
 
 Controls which identities and sources are in scope and how processing is managed.
@@ -56,8 +59,8 @@ Controls which identities and sources are in scope and how processing is managed
 
 | Field                                | Description                                                 | Required                              | Notes                                                                                                         |
 | ------------------------------------ | ----------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **Include identities in the scope?** | Include identities outside the sources scope                | No                                    | Enable for identity-only attribute generation or to provide a baseline for deduplication                      |
-| **Identity Scope Query**             | Search/filter query to limit which identities are evaluated | Yes (when include identities enabled) | Uses ISC search syntax; examples: `*` (all), `attributes.cloudLifecycleState:active`, `source.name:"Workday"` |
+| **Include identities in the scope?** | Include identities in addition to managed accounts from configured sources | No                                    | Enable for identity-only attribute generation or to define the baseline for deduplication (sources scope = managed accounts from configured sources). |
+| **Identity Scope Query**             | Search/filter query to limit which identities are evaluated | Yes (when include identities enabled) | Uses [ISC search syntax](https://documentation.sailpoint.com/saas/help/search/building-query.html); examples: `*` (all), `attributes.cloudLifecycleState:active`, `source.name:"Workday"` |
 
 #### Sources Section
 
@@ -78,7 +81,7 @@ Controls which identities and sources are in scope and how processing is managed
 | Field                                    | Description                                              | Required | Notes                                                                                               |
 | ---------------------------------------- | -------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
 | **Source name**                          | Name of the authoritative account source                 | Yes      | Must match the source name in ISC exactly (case-sensitive)                                          |
-| **Force aggregation before processing?** | Trigger fresh aggregation of this source before each run | No       | Ensures current data but increases runtime                                                          |
+| **Force aggregation before processing?** | Trigger fresh aggregation of this source before each run | No       | Ensures current data but increases runtime. Useful for deduplication; also convenient when generating unique IDs for an authoritative source so its aggregation syncs with Fusion and new data gets identifiers as soon as it arrives. |
 | **Account filter**                       | Filter query to limit which accounts are processed       | No       | Uses ISC search/filter syntax; example: `attributes.department:"Engineering"`                       |
 | **Aggregation batch size**               | Maximum accounts to aggregate per run                    | No       | Leave empty for all accounts; useful for initial loading of large datasets with internal duplicates |
 
@@ -93,7 +96,7 @@ Controls which identities and sources are in scope and how processing is managed
 | **Maximum history messages**                                | Maximum history entries retained per Fusion account                      | No       | Default: 10; older entries are discarded when limit exceeded               |
 | **Delete accounts with no authoritative accounts left?**    | Remove Fusion accounts when all contributing source accounts are removed | No       | Useful for automated cleanup when users leave                              |
 | **Correlate missing source accounts on aggregation?**       | Attempt to correlate new/missing source accounts each run                | No       | Default: true; helps with incremental correlation                          |
-| **Force attribute refresh on each aggregation?**            | Force all attributes to refresh every run                                | No       | Even if account was recently modified; can be expensive for large datasets |
+| **Force attribute refresh on each aggregation?**            | Force Normal-type attributes to refresh every run                        | No       | Applies only to Normal attributes; Unique attributes are only computed when a Fusion account is first created or when an existing account is activated. Can be expensive for large datasets. |
 | **Reset processing flag in case of unfinished processing?** | Clear stuck processing state from prior incomplete run                   | No       | Use when a previous run left accounts in processing state                  |
 
 ### Attribute Mapping Settings
@@ -154,7 +157,7 @@ Controls how attributes are generated, including unique identifiers, UUIDs, coun
 | **Remove spaces?**                    | Remove all spaces from value                        | No                         | Useful for IDs and usernames                                                                                                                                                                                                                                                                                                                       |
 | **Refresh on each aggregation?**      | Recalculate value every aggregation                 | No                         | Only available for **Normal** type; unique/UUID/counter preserve state                                                                                                                                                                                                                                                                             |
 
-**Note:** When an account is **enabled**, all attributes (including unique) are force refreshed and recalculated.
+**Note:** When an account is **enabled**, all attributes (including unique) are force refreshed and recalculated (internal mechanism to reset unique attributes).
 
 ### Fusion Settings
 
@@ -169,7 +172,7 @@ Controls deduplication behavior, including similarity matching and manual review
 | Field                                                       | Description                                                    | Required                         | Notes                                                                                                                                                                    |
 | ----------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Fusion attribute matches**                                | List of identity attributes to compare for duplicate detection | Yes                              | At least one attribute match required; each match specifies an attribute and algorithm                                                                                   |
-| **Use overall fusion similarity score for all attributes?** | Use single overall score instead of per-attribute thresholds   | No                               | When enabled, overall score is calculated as average of per-attribute scores; when disabled, must have at least one mandatory match configured                           |
+| **Use overall fusion similarity score for all attributes?** | Use single overall score instead of per-attribute thresholds   | No                               | When enabled, only the overall (average) threshold must be met; when disabled, every mandatory attribute must match, and if none are mandatory, all attributes are treated as mandatory. |
 | **Similarity score [0-100]**                                | Minimum overall similarity score for auto-correlation          | Yes (when overall score enabled) | Typical range: 70-90; higher = stricter; only used when "Use overall fusion similarity score" is enabled                                                                 |
 | **Automatically correlate if identical?**                   | Auto-merge when attributes meet criteria without manual review | No                               | Use when you trust the algorithm and thresholds; skips manual review for high-confidence matches                                                                         |
 
@@ -181,8 +184,8 @@ Controls deduplication behavior, including similarity matching and manual review
 | ---------------------------- | --------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Attribute**                | Identity attribute name to compare                              | Yes      | Must exist on identities in scope                                                                                                                                                                                                                                                                                                  |
 | **Matching algorithm**       | Algorithm for similarity calculation                            | Yes      | **Enhanced Name Matcher** (person names, handles variations), **Jaro-Winkler** (short strings with typos, emphasizes beginning), **Dice** (longer text, bigram-based), **Double Metaphone** (phonetic, similar pronunciation), **Custom** (from SaaS customizer)                                                                   |
-| **Similarity score [0-100]** | Minimum similarity score for this attribute                     | No       | Required when **not** using overall score mode; when **Mandatory match?** = Yes, attribute score must meet or exceed this threshold or match fails; when **Mandatory match?** = No, score is for reference only                                                                                                                    |
-| **Mandatory match?**         | Require this attribute to match before considering as duplicate | No       | When Yes: attribute score must be ≥ threshold or match fails; when No: attribute contributes to scoring but doesn't block match. **At least one attribute must have Mandatory=Yes when not using overall score mode**, or enable "Use overall fusion similarity score" |
+| **Similarity score [0-100]** | Minimum similarity score for this attribute                     | No       | Required when not using overall score mode. A mandatory attribute must meet or exceed this threshold or the match fails. When overall score is enabled, only the overall threshold is required (per-attribute thresholds may not all be met). When no attribute is mandatory, all attributes are treated as mandatory. |
+| **Mandatory match?**         | Require this attribute to match before considering as duplicate | No       | When Yes: this attribute's score must be ≥ its threshold or the match fails. When No: attribute still has a threshold; when overall score is disabled and no attribute is mandatory, every attribute is effectively mandatory (all must meet thresholds). |
 
 #### Review Settings Section
 
@@ -228,7 +231,7 @@ Fine-tuning for API behavior, resilience, debugging, and proxy mode.
 | **Enable queue?**                  | Enable queue management for API requests       | No                               | Enables rate limiting and concurrency control                                     |
 | **Maximum concurrent requests**    | Maximum simultaneous API requests              | No (required when queue enabled) | Default: 10; adjust based on API capacity and tenant limits                       |
 | **Enable retry?**                  | Enable automatic retry for failed API requests | No                               | Recommended for production; handles transient failures                            |
-| **Processing wait time (seconds)** | Wait time for processing operations            | Yes                              | Default: 60; reserved for future scheduling features                              |
+| **Processing wait time (seconds)** | Reserved for future use                        | Yes                              | Default: 60; not used for tuning—reserved for future scheduling features          |
 | **Retry delay (milliseconds)**     | Base delay between retry attempts              | Yes                              | Default: 1000; for HTTP 429, uses `Retry-After` header when present               |
 | **Enable batching?**               | Group requests in queue for better throughput  | No                               | Can improve efficiency for bulk operations                                        |
 | **Batch size**                     | Requests per batch                             | Yes (when batching enabled)      | Default: 250; adjust based on operation type and payload size                     |
@@ -255,7 +258,7 @@ For detailed field-by-field guidance and usage patterns, see the [usage guides](
 ## Quick start
 
 1. **Add the connector to ISC** — Upload the Identity Fusion NG connector (e.g. via SailPoint CLI or your organization's process).
-2. **Create a source** — In Admin → Connections → Sources, create a new source using the Identity Fusion NG connector. Mark it **Authoritative** only if you need deduplication and want this source to own the identity list.
+2. **Create a source** — In Admin → Connections → Sources, create a new source using the Identity Fusion NG connector. Mark it **Authoritative** when you need deduplication (so Fusion decides which incoming accounts create new identities vs. correlate to existing ones). For attribute generation only, Fusion is rarely authoritative.
 3. **Configure connection** — Set Identity Security Cloud API URL and Personal Access Token (ID and secret). Use **Review and Test** to verify connectivity.
 4. **Configure the connector** — Depending on your goal:
     - **Attribute generation only:** Set [Source Settings](docs/guides/attribute-generation.md) (identity scope and/or sources), [Attribute Mapping](docs/guides/attribute-management.md), and [Attribute Definitions](docs/guides/attribute-management.md).

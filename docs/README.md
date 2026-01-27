@@ -6,7 +6,8 @@ This folder contains the **usage guides** linked from the [main README](../READM
 
 | Guide | Description |
 |-------|-------------|
-| [Attribute generation](guides/attribute-generation.md) | Use Identity Fusion for unique or combined attributes (identities and/or sources); connector does not need to be authoritative. |
+| [Migration from previous Identity Fusion](guides/migration-from-previous-fusion.md) | Migrate from an earlier Identity Fusion version using the old source as managed, schema alignment, and a higher-priority identity profile plus identity refresh. |
+| [Attribute generation](guides/attribute-generation.md) | Use Identity Fusion for unique or combined attributes (identities and/or sources); Fusion is rarely authoritative in this mode; managed sources are optional. |
 | [Deduplication](guides/deduplication.md) | Configure sources and Fusion Settings to detect and resolve potential duplicate identities. |
 | [Matching algorithms](guides/matching-algorithms.md) | Choose and tune similarity algorithms and scores for deduplication. |
 | [Attribute management](guides/attribute-management.md) | Attribute mapping, merging, and attribute definitions (Velocity, unique, UUID, counters). |

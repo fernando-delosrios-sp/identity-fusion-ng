@@ -12,6 +12,7 @@ import { pickAttributes } from '../../utils/attributes'
 import { createUrlContext, UrlContext } from '../../utils/url'
 import { mapValuesToArray } from './collections'
 import { FusionDecision } from '../../model/form'
+import { FusionMatch } from '../scoringService'
 import { ScoringService } from '../scoringService'
 import { SchemaService } from '../schemaService'
 import { FusionReport, FusionReportAccount } from './types'
@@ -341,16 +342,56 @@ export class FusionService {
     }
 
     /**
+     * Returns true when all attribute similarity scores in the match are 100 (perfect match).
+     * Excludes the synthetic 'average' score when overall scoring is used.
+     */
+    private static hasAllAttributeScoresPerfect(match: FusionMatch): boolean {
+        const attributeScores = match.scores.filter((s) => s.algorithm !== 'average')
+        return attributeScores.length > 0 && attributeScores.every((s) => s.score === 100)
+    }
+
+    /**
      * Process a single managed account
      */
     public async processManagedAccount(account: Account): Promise<void> {
         const fusionAccount = await this.analyzeManagedAccount(account)
 
         if (fusionAccount.isMatch) {
-            const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
-            assert(sourceInfo, 'Source info not found')
-            const reviewers = this.reviewersBySourceId.get(sourceInfo.id!)
-            await this.forms.createFusionForm(fusionAccount, reviewers)
+            const perfectMatch = fusionAccount.fusionMatches.find((m) =>
+                FusionService.hasAllAttributeScoresPerfect(m)
+            )
+            if (
+                this.config.fusionMergingIdentical &&
+                perfectMatch &&
+                perfectMatch.fusionIdentity.identityId
+            ) {
+                this.log.debug(
+                    `Account ${account.name} [${fusionAccount.sourceName}] has all scores 100, auto-correlating to identity ${perfectMatch.fusionIdentity.identityId}`
+                )
+                const syntheticDecision: FusionDecision = {
+                    submitter: { id: 'system', email: '', name: 'System (auto-correlated)' },
+                    account: {
+                        id: fusionAccount.managedAccountId!,
+                        name: fusionAccount.name ?? account.name ?? '',
+                        sourceName: fusionAccount.sourceName,
+                    },
+                    newIdentity: false,
+                    identityId: perfectMatch.fusionIdentity.identityId,
+                    comments: 'Auto-correlated: all attribute scores were 100',
+                    finished: true,
+                }
+                await this.processIdentityFusionDecision(syntheticDecision)
+                // Do not include auto-correlated accounts in potential-duplicate reporting
+                const idx = this.potentialDuplicateAccounts.indexOf(fusionAccount)
+                if (idx !== -1) {
+                    this.potentialDuplicateAccounts.splice(idx, 1)
+                }
+            } else {
+                const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
+                assert(sourceInfo, 'Source info not found')
+                const reviewers = this.reviewersBySourceId.get(sourceInfo.id!)
+                await this.forms.createFusionForm(fusionAccount, reviewers)
+            }
         } else {
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
             await this.attributes.refreshUniqueAttributes(fusionAccount)

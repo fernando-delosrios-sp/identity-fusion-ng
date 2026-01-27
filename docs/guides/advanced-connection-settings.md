@@ -110,6 +110,15 @@ Developer Settings provide tools for testing, troubleshooting, and monitoring.
 - Handles log volume (can be high with Debug level)
 - Secured with HTTPS and authentication (recommended)
 
+**Log payload contract:** Each log entry is a JSON object. Implementations should accept at least these fields (and may receive additional fields in the future):
+
+| Field       | Type   | Required | Description                          |
+|------------|--------|----------|--------------------------------------|
+| `level`    | string | Yes      | One of: `error`, `warn`, `info`, `debug` |
+| `timestamp`| string | Yes      | ISO 8601 date-time (e.g. `2024-01-15T14:30:45.123Z`) |
+| `message`  | string | Yes      | Log message text                     |
+| `context`  | object | No       | Additional key-value context (e.g. `sourceId`, `accountCount`) |
+
 **Example log structure:**
 
 ```json

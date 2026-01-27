@@ -27,7 +27,7 @@ Use Identity Fusion for deduplication when you face these challenges:
 | **One or more sources** | **Source Settings → Authoritative account sources** | At least one source; typically 2+ for deduplication value |
 | **Fusion Settings (Matching)** | **Fusion attribute matches**, algorithms, scores | Defines similarity detection rules |
 | **Fusion Settings (Review)** | Form attributes, expiration, reviewers | Configures manual review workflow |
-| **Authoritative source** | ISC source marked as **Authoritative** | Fusion must be authoritative to own identity list |
+| **Authoritative source** | ISC source marked as **Authoritative** | In most cases Fusion must be authoritative so it can determine which incoming managed accounts create a new identity and which correlate to an existing one. Barring edge cases, assume the source is authoritative when deduplication is needed. |
 
 ### Highly recommended
 
@@ -48,6 +48,14 @@ Use Identity Fusion for deduplication when you face these challenges:
 
 ![Deduplication flow - Overview](../assets/images/deduplication-flow.png)
 <!-- PLACEHOLDER: Diagram or screenshot of deduplication flow. Save as docs/assets/images/deduplication-flow.png -->
+
+---
+
+## Scope and baseline
+
+- **Sources scope** — Managed accounts coming from the **Authoritative account sources** you configure. Each managed account is processed and either becomes a Fusion account or triggers a Fusion review form; the form can result in creating a new Fusion account or linking the managed account to an existing Fusion account as part of an identity.
+- **Identity scope** — Identities selected by **Include identities in the scope?** and **Identity Scope Query**. Identity scope and sources scope are complementary and can overlap.
+- **Baseline** — Identities within the identity scope form the **baseline** to which incoming managed accounts are compared during deduplication. Already created Fusion accounts also complement the baseline, so new managed accounts can be compared against both existing identities and existing Fusion accounts.
 
 ---
 
@@ -103,7 +111,7 @@ Configure **Source Settings → Processing Control** for account lifecycle:
 | **Maximum history messages** | 10 (default) | Balance between audit trail and storage |
 | **Delete accounts with no authoritative accounts left?** | Yes | Auto-cleanup when person leaves organization and all source accounts are removed |
 | **Correlate missing source accounts on aggregation?** | Yes | Automatically correlate new or previously missing source accounts |
-| **Force attribute refresh on each aggregation?** | No | Expensive; only needed if attributes change frequently |
+| **Force attribute refresh on each aggregation?** | No | Applies only to Normal-type attributes; Unique attributes are only computed on account creation or activation. Expensive if attributes change frequently. |
 | **Reset processing flag in case of unfinished processing?** | No (enable once if needed) | Recovery after failed run |
 
 ---
@@ -191,10 +199,11 @@ Strategy 4: Phonetic name matching
 ```
 
 **Example with per-attribute scores:**
+A mandatory attribute must always meet its threshold. When no attribute is marked mandatory, all attributes are treated as mandatory.
 ```
 - Attribute: name, Score: 75, Result: 85 → Pass
 - Attribute: email, Score: 90, Result: 88 → Fail (88 < 90)
-→ No match detected (one attribute failed)
+→ No match detected (email threshold not met)
 ```
 
 ### Auto-correlation
@@ -292,8 +301,8 @@ Create an access profile for viewing deduplication reports:
 | Step | Actor | Action | Output |
 |------|-------|--------|--------|
 | 1 | **Connector** | Account aggregation runs (manual or scheduled) | Reads accounts from configured sources |
-| 2 | **Connector** | Merges source account data into Fusion proxy accounts | Consolidated accounts per person |
-| 3 | **Connector** | Compares each proxy account to identities in scope | Similarity scores per identity + attribute |
+| 2 | **Connector** | Merges source account data into Fusion accounts | Consolidated accounts per person |
+| 3 | **Connector** | Compares each Fusion account to identities in scope | Similarity scores per identity + attribute |
 | 4 | **Connector** | If similarity threshold met and not auto-correlate | Creates review form |
 | 5 | **ISC** | Sends email notification to reviewers | Reviewers notified |
 | 6 | **Reviewer** | Reviews form, chooses: link to existing identity or create new | Decision recorded |
@@ -317,24 +326,24 @@ When account aggregation runs on the Fusion source:
    - Fetch correlated accounts from configured sources
    - Merge account data per **Attribute Mapping Settings** (see [Attribute management](attribute-management.md))
    - Generate attributes per **Attribute Definition Settings**
-   - Result: consolidated Fusion proxy account
+   - Result: consolidated Fusion account
 
 **Step 3: Similarity matching**
 
-For each Fusion proxy account (new or updated):
+For each Fusion account (new or updated):
 
 1. Fetch all identities in scope (per **Identity Scope Query**)
 2. For each identity, calculate similarity:
    - For each configured **Fusion attribute match**:
      - Fetch attribute value from identity
-     - Fetch attribute value from proxy account
+     - Fetch attribute value from Fusion account
      - Calculate similarity score using specified algorithm
    - If **Use overall fusion similarity score?**:
      - Average all per-attribute scores → overall score
-     - If overall score ≥ threshold → potential duplicate
+     - If overall score ≥ threshold → potential duplicate (per-attribute thresholds may not all be met)
    - Else (per-attribute mode):
-     - Each attribute must meet its own threshold
-     - If **Mandatory match?** is Yes for any attribute, that attribute must match
+     - Every **mandatory** attribute must meet its threshold or the match fails
+     - If no attribute is mandatory, all attributes are treated as mandatory (all must meet thresholds)
      - If all conditions met → potential duplicate
 3. Sort identities by similarity score (highest first)
 
@@ -344,7 +353,7 @@ For each potential duplicate:
 
 | Condition | Action |
 |-----------|--------|
-| **Automatically correlate if identical?** = Yes AND score is very high (effectively identical) | Auto-correlate account to identity; skip review |
+| **Automatically correlate if identical?** = Yes and **all** attribute similarity scores for the best match are **100** | Skip review form; correlate the managed account to that identity directly (Fusion assignment is applied immediately) |
 | Else | Create review form; notify reviewers |
 
 **Step 5–6: Manual review**
@@ -369,10 +378,10 @@ On next aggregation:
 
 1. Connector processes pending form submissions
 2. For "Link to existing identity":
-   - Correlates proxy account to selected identity
+   - Correlates Fusion account to selected identity
    - Updates account attributes from identity
 3. For "Create new identity":
-   - Leaves proxy account uncorrelated
+   - Leaves Fusion account uncorrelated
    - ISC identity profile creates new identity (since Fusion is authoritative)
 4. Updates account history with decision and timestamp
 
@@ -420,7 +429,7 @@ Track these metrics to assess deduplication effectiveness:
 |-----------|---------|-------------------|
 | **Source Settings (Scope)** | Define identity baseline | Include identities = Yes; Identity Scope Query |
 | **Source Settings (Sources)** | Sources contributing account data | Source names (2+); Force aggregation (optional) |
-| **Attribute Mapping** | Merge source attributes into proxy accounts | Merge strategies (first/list/concatenate) |
+| **Attribute Mapping** | Merge source attributes into Fusion accounts | Merge strategies (first/list/concatenate) |
 | **Fusion Settings (Matching)** | Duplicate detection rules | Fusion attribute matches; algorithms; scores; auto-correlate |
 | **Fusion Settings (Review)** | Manual review workflow | Form attributes; expiration days; global reviewer |
 | **Access Profiles** | Reviewer permissions | Per-source reviewer access profiles; Fusion report |

@@ -1,6 +1,6 @@
 # Identity Fusion for Attribute Generation
 
-This comprehensive guide explains how to use Identity Fusion NG to **generate or combine attributes** for your identities. In this use case, the Identity Fusion source **does not need to be authoritative**. You can use identities only, sources only, or both, depending on your requirements.
+This comprehensive guide explains how to use Identity Fusion NG to **generate or combine attributes** for your identities. In this use case, the Identity Fusion source is **rarely configured as authoritative**—Fusion acts as an additional source that provides unique IDs, calculated attributes, or consolidated attributes. Adding managed account sources is optional and depends on your attribute management requirements. You can use identities only, sources only, or both.
 
 ---
 
@@ -17,6 +17,8 @@ Use Identity Fusion for attribute generation when you need:
 | **Counter-based sequences** | Sequential numbering for accounts or identities | Employee numbers starting from 1000, badge IDs |
 
 **Key advantage:** You are **not** primarily focused on duplicate detection—you want a single place to define, compute, and standardize attributes.
+
+**Authoritative vs non-authoritative:** When Fusion is used only for attribute generation, it is rarely marked **Authoritative** in ISC. In that mode, Fusion does not own the identity list; it contributes account attributes (unique IDs, computed or merged values) to identities that may be owned by other sources. When you need **deduplication**, Fusion should be authoritative so it can determine which incoming accounts create new identities and which correlate to existing ones—see [Identity Fusion for deduplication](deduplication.md).
 
 ---
 
@@ -68,7 +70,7 @@ Configure **Source Settings → Sources** to specify which sources contribute ac
 | Field | Description | Recommended value | Notes |
 |-------|-------------|-------------------|-------|
 | **Source name** | Exact name of ISC source | Must match ISC source name (case-sensitive) | Verify in Admin → Connections → Sources |
-| **Force aggregation before processing?** | Run fresh aggregation before each Fusion run | No for performance; Yes for real-time accuracy | Increases runtime significantly |
+| **Force aggregation before processing?** | Run fresh aggregation before each Fusion run | No for performance; Yes for real-time accuracy | Increases runtime. Designed for deduplication; also useful when generating unique identifiers for an **authoritative** source—Fusion’s run can be synchronized with that source’s aggregation so new authoritative data gets identifiers as soon as it comes in. |
 | **Account filter** | Limit accounts from this source | Leave empty initially | Example: `attributes.accountType:"employee"` |
 | **Aggregation batch size** | Max accounts per run | Leave empty for all accounts | Use for phased rollout (e.g. 1000 accounts initially) |
 
@@ -250,7 +252,7 @@ Configure **Source Settings → Processing Control** for account lifecycle manag
 | **Maximum history messages** | 10 (default) | Limits history entries per Fusion account |
 | **Delete accounts with no authoritative accounts left?** | No for identity-only; Yes for source-driven | Auto-cleanup when source accounts are removed |
 | **Correlate missing source accounts on aggregation?** | Yes | Helps with incremental updates |
-| **Force attribute refresh on each aggregation?** | No | Expensive; only enable if you need all attributes recalculated every time |
+| **Force attribute refresh on each aggregation?** | No | Applies only to Normal-type attributes; Unique attributes are only computed on account creation or activation. Expensive for large datasets. |
 | **Reset processing flag in case of unfinished processing?** | No (enable once if needed) | Use for recovery after failed runs |
 
 ---

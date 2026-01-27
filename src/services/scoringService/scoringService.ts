@@ -74,6 +74,25 @@ export class ScoringService {
             }
             scores.push(scoreReport)
             isMatch = match
+        } else {
+            let hasMandatory = false
+            let hasFailedMatch = false
+            for (const score of scores) {
+                if (score.mandatory) {
+                    hasMandatory = true
+                }
+                if (!score.isMatch) {
+                    hasFailedMatch = true
+                }
+                if (score.mandatory && !score.isMatch) {
+                    break
+                }
+            }
+            if (hasMandatory) {
+                isMatch = true
+            } else if (!hasFailedMatch) {
+                isMatch = true
+            }
         }
 
         const fusionMatch: FusionMatch = {

@@ -249,7 +249,7 @@ $Math.floor($Datefns.differenceInDays($Datefns.now(), $hireDate) / 365)
 
 #### Unique type
 
-**Behavior:** Must be unique across all Fusion accounts; connector adds disambiguation counter on collision.
+**Behavior:** Must be unique across all Fusion accounts; connector adds disambiguation counter on collision. Unique attributes are only computed when a Fusion account is **first created** or when an existing account is **activated** (an internal mechanism to reset unique attributes). They are not refreshed by **Force attribute refresh on each aggregation** (that setting applies only to Normal-type attributes).
 
 **How it works:**
 1. Generate value from expression
@@ -301,7 +301,7 @@ Next John Smith:
 - Globally unique (extremely low collision probability)
 - Immutable (never changes once generated)
 - Format: 36 characters (8-4-4-4-12 hex digits)
-- Example: `a3f2e8b4-7c2d-4f9e-8a1b-3c5d6e7f8g9h`
+- Example: `a3f2e8b4-7c2d-4f9e-8a1b-3c5d6e7f8a9b`
 
 **Use cases:**
 - **Native identity** in ISC (stable reference that never changes)
@@ -419,6 +419,8 @@ Advanced date formatting and manipulation.
 | `$Datefns.endOfDay(date)` | End of day (23:59:59) | Similar |
 | `$Datefns.now()` | Current date/time | `$Datefns.now()` |
 | `$Datefns.isValid(date)` | Check if date is valid | `$Datefns.isValid($inputDate)` → true/false |
+
+**Date format:** Format tokens follow the [date-fns format specification](https://date-fns.org/docs/format). Use these tokens (not Java SimpleDateFormat) in `$Datefns.format(date, format)` and `$Datefns.parse(dateStr, format)`.
 
 **Date format patterns:**
 
