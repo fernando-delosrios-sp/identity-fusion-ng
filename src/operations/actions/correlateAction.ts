@@ -5,9 +5,13 @@ import { ServiceRegistry } from '../../services/serviceRegistry'
 /**
  * Correlate action handler
  * Correlates missing source accounts when the "correlate" action is added
+ * @param serviceRegistry - Request-scoped registry (required for concurrent updates to avoid global state)
  */
-export const correlateAction = async (fusionAccount: FusionAccount, op: AttributeChangeOp): Promise<void> => {
-    const serviceRegistry = ServiceRegistry.getCurrent()
+export const correlateAction = async (
+    fusionAccount: FusionAccount,
+    op: AttributeChangeOp,
+    serviceRegistry: ServiceRegistry
+): Promise<void> => {
     const { log, identities } = serviceRegistry
 
     log.debug(`Correlate action called for account ${fusionAccount.name} with operation ${op}`)

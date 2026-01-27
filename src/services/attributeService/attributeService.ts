@@ -192,7 +192,6 @@ export class AttributeService {
 
         for (const source of fusionAccount.sources) {
             sourceAttributeMap.set(source, attributeBag.sources.get(source) ?? [])
-            sourceOrder.push(source)
         }
 
         // If refresh is needed, process source attributes in established order
@@ -265,6 +264,9 @@ export class AttributeService {
 
         const allDefinitions = this.attributeDefinitionConfig
         const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
+        uniqueAttributeDefinitions.forEach((def) => {
+            def.refresh = true
+        })
 
         await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
     }
@@ -648,12 +650,7 @@ export class AttributeService {
             return false
         }
 
-        // Check both current attributes and previous attributes to handle cases where
-        // attributes exist but haven't been copied to current yet (edge case)
-        // This prevents counter attributes from being regenerated for existing accounts
-        const hasAttribute =
-            (fusionAccount.attributes[attributeName] !== undefined) ||
-            (fusionAccount.attributeBag.previous[attributeName] !== undefined)
+        const hasAttribute = fusionAccount.attributes[attributeName] !== undefined
 
         return !!(hasAttribute && !refresh)
     }
@@ -717,7 +714,14 @@ export class AttributeService {
     ): Promise<void> {
         // Generate each attribute definition
         for (const definition of attributeDefinitions) {
-            await this.generateAttribute(definition, fusionAccount)
+            try {
+                await this.generateAttribute(definition, fusionAccount)
+            } catch (error) {
+                this.log.error(`Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`, error)
+                if (isUniqueAttribute(definition)) {
+                    throw error
+                }
+            }
         }
     }
 }

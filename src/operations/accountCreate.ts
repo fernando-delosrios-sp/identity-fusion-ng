@@ -45,13 +45,13 @@ export const accountCreate = async (
             log.debug(`Processing action: ${action}`)
             switch (action) {
                 case 'report':
-                    await reportAction(fusionIdentity, AttributeChangeOp.Add)
+                    await reportAction(fusionIdentity, AttributeChangeOp.Add, serviceRegistry)
                     break
                 case 'fusion':
-                    await fusionAction(fusionIdentity, AttributeChangeOp.Add)
+                    await fusionAction(fusionIdentity, AttributeChangeOp.Add, serviceRegistry)
                     break
                 case 'correlate':
-                    await correlateAction(fusionIdentity, AttributeChangeOp.Add)
+                    await correlateAction(fusionIdentity, AttributeChangeOp.Add, serviceRegistry)
                     break
                 default:
                     log.crash(`Unsupported action: ${action}`)

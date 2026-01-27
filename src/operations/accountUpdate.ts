@@ -16,6 +16,7 @@ export const accountUpdate = async (
 
     try {
         log.info(`Updating account ${input.identity}...`)
+        log.info(`Input: ${JSON.stringify(input)}`)
         assert(input.identity, 'Account identity is required')
         assert(input.changes, 'Account changes are required')
         assert(input.changes.length > 0, 'At least one change is required')
@@ -35,13 +36,13 @@ export const accountUpdate = async (
             if (change.attribute === 'actions') {
                 switch (change.value) {
                     case 'report':
-                        await reportAction(fusionAccount, change.op)
+                        await reportAction(fusionAccount, change.op, serviceRegistry)
                         break
                     case 'fusion':
-                        await fusionAction(fusionAccount, change.op)
+                        await fusionAction(fusionAccount, change.op, serviceRegistry)
                         break
                     case 'correlated':
-                        await correlateAction(fusionAccount, change.op)
+                        await correlateAction(fusionAccount, change.op, serviceRegistry)
                         // Status/action will be updated after correlation promises resolve in getISCAccount
                         break
                     default:
