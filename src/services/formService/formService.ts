@@ -473,7 +473,10 @@ export class FormService {
         assert(formInstances, 'Form instances array is required')
 
         const processingResult = this.analyzeFormInstances(formInstances)
-        const accountInfoOverride = this.extractAccountInfoOverride(processingResult.accountId, processingResult.shouldDeleteForm)
+        const accountInfoOverride = this.extractAccountInfoOverride(
+            processingResult.accountId,
+            processingResult.shouldRemoveAccountFromMap
+        )
 
         const decisionsAdded = this.createDecisionsFromInstances(
             processingResult.instancesToProcess,
@@ -500,12 +503,32 @@ export class FormService {
         formDefinitionId: string | undefined
         accountId: string | undefined
         processedCount: number
+        /**
+         * Indicates whether the managed account should be removed from the
+         * managedAccountsById map to avoid further processing on next runs.
+         *
+         * Rules:
+         * - While there is no response instance (COMPLETED/IN_PROGRESS), the form
+         *   is kept but the managed account is removed from the map so we don't
+         *   try to create another form for it.
+         * - When there's a response instance, the form is deleted and the managed
+         *   account is kept to support decision processing.
+         * - When all instances have been cancelled, the form is deleted and the
+         *   managed account is kept so a new form can be created later if needed.
+         */
+        shouldRemoveAccountFromMap: boolean
     } {
-        let shouldDeleteForm = true
+        // Default: keep the form until we see a response or learn all instances
+        // were cancelled, in which case we can safely delete the form.
+        let shouldDeleteForm = false
         let processedCount = 0
         let formDefinitionId: string | undefined = undefined
         let accountId: string | undefined = undefined
         const instancesToProcess: FormInstanceResponseV2025[] = []
+
+        let hasResponseInstance = false
+        let anyInstance = false
+        let allInstancesCancelled = true
 
         for (const instance of formInstances) {
             assert(instance, 'Form instance is required')
@@ -514,11 +537,40 @@ export class FormService {
             formDefinitionId = formDefinitionId || instance.formDefinitionId
             accountId = accountId || this.extractAccountIdFromInstance(instance)
 
-            const stateResult = this.processInstanceState(instance, instancesToProcess)
-            shouldDeleteForm = stateResult.shouldDeleteForm
-            processedCount += stateResult.processedCount
+            anyInstance = true
 
-            if (stateResult.shouldBreakLoop) {
+            // Track high-level state for account/form lifecycle decisions,
+            // and collect only "response" instances for decision processing.
+            switch (instance.state) {
+                case 'COMPLETED':
+                case 'IN_PROGRESS':
+                    this.log.debug(`Processing response form instance: ${instance.id}`)
+                    instancesToProcess.push(instance)
+                    processedCount++
+
+                    hasResponseInstance = true
+                    allInstancesCancelled = false
+                    // A single response instance is enough to decide the form's fate.
+                    shouldDeleteForm = true
+                    break
+
+                case 'CANCELLED':
+                    this.log.info(`Form instance ${instance.id} was cancelled`)
+                    processedCount++
+                    // Keep allInstancesCancelled = true only if we *only* see cancelled instances.
+                    break
+
+                default:
+                    // Pending / other non-final states: keep the form, but don't
+                    // add them to processing, as they are not responses yet.
+                    this.log.debug(`Form instance ${instance.id} has state: ${instance.state}, keeping form`)
+                    allInstancesCancelled = false
+                    break
+            }
+
+            // If we've already decided to delete the form due to a response,
+            // no need to continue scanning the rest of the instances.
+            if (shouldDeleteForm && hasResponseInstance) {
                 break
             }
         }
@@ -529,12 +581,30 @@ export class FormService {
             shouldDeleteForm = true
         }
 
+        // If we saw instances and *all* of them were cancelled, we can delete
+        // the form but keep the account so a new form can be issued later.
+        if (anyInstance && allInstancesCancelled) {
+            shouldDeleteForm = true
+        }
+
+        // We only remove the account from the map while we are waiting for a
+        // response: i.e. there is no response instance yet and not all
+        // instances are cancelled (some are still pending / open).
+        const shouldRemoveAccountFromMap = !hasResponseInstance && !allInstancesCancelled
+
+        this.log.debug(
+            `Form analysis result: shouldDeleteForm=${shouldDeleteForm}, ` +
+            `hasResponseInstance=${hasResponseInstance}, allInstancesCancelled=${allInstancesCancelled}, ` +
+            `shouldRemoveAccountFromMap=${shouldRemoveAccountFromMap}`
+        )
+
         return {
             instancesToProcess,
             shouldDeleteForm,
             formDefinitionId,
             accountId,
             processedCount,
+            shouldRemoveAccountFromMap,
         }
     }
 
@@ -574,37 +644,18 @@ export class FormService {
     }
 
     /**
-     * Process instance state and determine if it should be included
-     */
-    private processInstanceState(
-        instance: FormInstanceResponseV2025,
-        instancesToProcess: FormInstanceResponseV2025[]
-    ): { shouldDeleteForm: boolean; processedCount: number; shouldBreakLoop: boolean } {
-        switch (instance.state) {
-            case 'COMPLETED':
-            case 'IN_PROGRESS':
-                this.log.debug(`Processing completed form instance: ${instance.id}`)
-                instancesToProcess.push(instance)
-                return { shouldDeleteForm: true, processedCount: 1, shouldBreakLoop: true }
-
-            case 'CANCELLED':
-                this.log.info(`Form instance ${instance.id} was cancelled`)
-                return { shouldDeleteForm: true, processedCount: 1, shouldBreakLoop: false }
-
-            default:
-                // Pending / in-progress instance: capture as an unfinished decision so
-                // we can populate reviewer context (reviews) without affecting fusion.
-                instancesToProcess.push(instance)
-                this.log.debug(`Form instance ${instance.id} has state: ${instance.state}, not deleting form`)
-                return { shouldDeleteForm: false, processedCount: 0, shouldBreakLoop: false }
-        }
-    }
-
-    /**
-     * Extract account info override from managed accounts before deletion
+     * Extract account info override from managed accounts and optionally
+     * remove the account from the managed accounts map.
+     *
+     * The removal behaviour is controlled by shouldRemoveAccountFromMap,
+     * which is derived from the instance analysis rules:
+     * - Response instance present  -> remove account from map
+     * - All instances cancelled    -> keep account
+     * - No response instance       -> keep account
      */
     private extractAccountInfoOverride(
-        accountId: string | undefined, shouldDeleteForm: boolean
+        accountId: string | undefined,
+        shouldRemoveAccountFromMap: boolean
     ): { id: string; name: string; sourceName: string } | undefined {
         if (!accountId) {
             return undefined
@@ -615,12 +666,14 @@ export class FormService {
 
         const account = managedAccountsMap.get(accountId)
         if (!account) {
-            // Account doesn't exist anymore, return undefined
-            // The form will be deleted due to missing account check in analyzeFormInstances
+            // Account doesn't exist anymore, return undefined.
+            // The form will be deleted due to missing account check in analyzeFormInstances.
             return undefined
         }
 
-        if (!shouldDeleteForm) {
+        if (shouldRemoveAccountFromMap) {
+            // We have a response instance for this form, so remove the managed
+            // account from the map to avoid re-processing it on subsequent runs.
             managedAccountsMap.delete(accountId)
         }
 

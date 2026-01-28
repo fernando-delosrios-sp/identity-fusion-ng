@@ -334,7 +334,7 @@ export class AttributeService {
      */
     public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType {
         const { fusionIdentityAttribute } = this.schemas
-        const uniqueId = fusionAccount.nativeIdentity ?? (fusionAccount.attributes[fusionIdentityAttribute] as string)
+        const uniqueId = (fusionAccount.attributes[fusionIdentityAttribute] as string) ?? fusionAccount.nativeIdentity
         assert(uniqueId, `Unique ID is required for simple key`)
 
         return SimpleKey(uniqueId)
@@ -717,7 +717,7 @@ export class AttributeService {
             try {
                 await this.generateAttribute(definition, fusionAccount)
             } catch (error) {
-                this.log.error(`Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`, error)
+                this.log.error(`Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`, (error as any).message)
                 if (isUniqueAttribute(definition)) {
                     throw error
                 }

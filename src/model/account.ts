@@ -100,32 +100,36 @@ export class FusionAccount {
      */
     private initializeBasicProperties(config: {
         type?: 'fusion' | 'identity' | 'managed' | 'decision'
+        nativeIdentity?: string
         name?: string | null
         sourceName?: string | null
-        disabled?: boolean | null
+        disabled?: boolean
         needsRefresh?: boolean
         sources?: string[] | Set<string>
         attributes?: Attributes | null
     }): void {
-        if (config.type !== undefined) {
+        if (config.type) {
             this._type = config.type
         }
-        if (config.name !== undefined) {
-            this._name = config.name ?? ''
+        if (config.name) {
+            this._name = config.name
         }
-        if (config.sourceName !== undefined) {
-            this._sourceName = config.sourceName ?? ''
+        if (config.nativeIdentity) {
+            this._nativeIdentity = config.nativeIdentity
         }
-        if (config.disabled !== undefined) {
+        if (config.sourceName) {
+            this._sourceName = config.sourceName
+        }
+        if (config.disabled) {
             this._disabled = config.disabled ?? false
         }
-        if (config.needsRefresh !== undefined) {
+        if (config.needsRefresh) {
             this._needsRefresh = config.needsRefresh
         }
-        if (config.sources !== undefined) {
+        if (config.sources) {
             this._sources = Array.isArray(config.sources) ? new Set(config.sources) : config.sources
         }
-        if (config.attributes !== undefined) {
+        if (config.attributes) {
             this._attributeBag.current = { ...(config.attributes ?? {}) }
             if (config.type === 'fusion') {
                 this._attributeBag.previous = { ...(config.attributes ?? {}) }
@@ -149,6 +153,7 @@ export class FusionAccount {
         // Initialize common properties
         fusionAccount.initializeBasicProperties({
             type: 'fusion',
+            nativeIdentity: account.nativeIdentity as string,
             name: account.name,
             sourceName: account.sourceName,
             disabled: account.disabled,
@@ -156,8 +161,6 @@ export class FusionAccount {
             attributes: account.attributes,
         })
 
-        // The ISC Account "id" (stable identifier for the account object)
-        fusionAccount._nativeIdentity = account.nativeIdentity as string
         fusionAccount._displayName = fusionAccount._name
         fusionAccount._modified = getDateFromISOString(account.modified)
         fusionAccount._identityId = account.identityId ?? undefined
@@ -175,6 +178,7 @@ export class FusionAccount {
 
         fusionAccount.initializeBasicProperties({
             type: 'identity',
+            nativeIdentity: identity.id,
             name: identity.attributes?.displayName ?? identity.name,
             sourceName: 'Identities',
             disabled: identity.disabled,
@@ -194,6 +198,7 @@ export class FusionAccount {
 
         fusionAccount.initializeBasicProperties({
             type: 'managed',
+            nativeIdentity: account.id,
             name: account.name,
             sourceName: account.sourceName,
             disabled: account.disabled,
@@ -217,6 +222,7 @@ export class FusionAccount {
 
         fusionAccount.initializeBasicProperties({
             type: 'decision',
+            nativeIdentity: decision.account.id,
             name: decision.account.name,
             sourceName: decision.account.sourceName,
             needsRefresh: true,
@@ -806,9 +812,9 @@ export class FusionAccount {
         const accountInfo = `${decision.account.name} [${decision.account.sourceName}]`
 
         if (action === 'manual') {
-            return `Created by ${submitterName} from ${accountInfo}`
+            return `Set ${accountInfo} as new account by ${submitterName}`
         } else {
-            return `${accountInfo} authorized by ${submitterName}`
+            return `Set ${accountInfo} as authorized by ${submitterName}`
         }
     }
 
