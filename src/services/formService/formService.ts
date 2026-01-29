@@ -38,6 +38,8 @@ export class FormService {
     private formsToDelete: string[] = []
     private _fusionIdentityDecisions?: FusionDecision[]
     private fusionAssignmentDecisionMap: Map<string, FusionDecision> = new Map()
+    /** Pending (unanswered) form instance URLs by recipient identityId, populated during fetchFormData. */
+    private _pendingReviewUrlsByReviewerId: Map<string, string[]> = new Map()
     private readonly fusionFormNamePattern: string
     private readonly fusionFormExpirationDays: number
     private readonly fusionFormAttributes?: string[]
@@ -72,6 +74,7 @@ export class FormService {
 
         this._fusionIdentityDecisions = []
         this.fusionAssignmentDecisionMap = new Map()
+        this._pendingReviewUrlsByReviewerId = new Map()
 
         const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
         this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
@@ -85,6 +88,11 @@ export class FormService {
                 return instances
             })
         )
+
+        // Build pending (unanswered) instance URLs by reviewer so reviewers can be updated later.
+        for (const instances of formInstancesResults) {
+            this.collectPendingReviewUrlsByReviewer(instances)
+        }
 
         // Process all instances sequentially to avoid race conditions when modifying shared state
         // (fetching was done in parallel above, processing is fast so sequential is fine)
@@ -460,9 +468,37 @@ export class FormService {
         return formInstance
     }
 
+    /**
+     * Pending (unanswered) form instance URLs by reviewer identityId.
+     * Populated during fetchFormData so reviewers can be updated when we process them.
+     */
+    public get pendingReviewUrlsByReviewerId(): Map<string, string[]> {
+        return this._pendingReviewUrlsByReviewerId
+    }
+
     // ------------------------------------------------------------------------
     // Private Helper Methods
     // ------------------------------------------------------------------------
+
+    /**
+     * Collect pending (unanswered) form instance URLs by recipient identityId.
+     * Pending = state is not COMPLETED, IN_PROGRESS, or CANCELLED.
+     * Kept so we can assign current review URLs to each reviewer when we process them.
+     */
+    private collectPendingReviewUrlsByReviewer(formInstances: FormInstanceResponseV2025[]): void {
+        for (const instance of formInstances) {
+            if (!instance.state || !instance.standAloneFormUrl) continue
+            const state = instance.state.toUpperCase()
+            if (state === 'COMPLETED' || state === 'IN_PROGRESS' || state === 'CANCELLED') continue
+            if (!instance.recipients?.length) continue
+            for (const recipient of instance.recipients) {
+                if (!recipient.id) continue
+                const list = this._pendingReviewUrlsByReviewerId.get(recipient.id) ?? []
+                list.push(instance.standAloneFormUrl)
+                this._pendingReviewUrlsByReviewerId.set(recipient.id, list)
+            }
+        }
+    }
 
     /**
      * Process fusion form instances and extract decisions

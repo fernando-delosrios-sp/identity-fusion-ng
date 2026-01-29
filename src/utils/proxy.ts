@@ -60,9 +60,10 @@ export const isProxyService = (config: FusionConfig): boolean => {
             const clientPassword = config.proxyPassword
             assert(serverPassword === clientPassword, 'Proxy password mismatch')
         }
+        return true
+    } else {
+        return false
     }
-
-    return proxyEnabled && hasProxyPassword
 }
 
 export const proxy: CommandHandler = async (context, input, res) => {
