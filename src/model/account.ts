@@ -5,7 +5,7 @@ import { FusionDecision } from './form'
 import { FusionConfig, SourceConfig } from './config'
 import { Attributes, SimpleKeyType } from '@sailpoint/connector-sdk'
 import { FusionMatch } from '../services/scoringService'
-import { attrSplit } from '../services/attributeService/helpers'
+import { attrConcat, attrSplit } from '../services/attributeService/helpers'
 
 type AttributeBag = {
     previous: Attributes
@@ -52,7 +52,7 @@ export class FusionAccount {
     private _actions: Set<string> = new Set()
     private _reviews: Set<string> = new Set()
     private _sources: Set<string> = new Set()
-    // private _previousAccountIds: Set<string> = new Set()
+    private _previousAccountIds: Set<string> = new Set()
     private _correlationPromises: Array<Promise<unknown>> = []
     private _pendingReviewUrls: Set<string> = new Set()
     private _reviewPromises: Array<Promise<string | undefined>> = []
@@ -94,137 +94,154 @@ export class FusionAccount {
     // Factory Methods - Must be first to ensure proper initialization order
     // ============================================================================
 
+    /** Attribute keys that can be extracted into collection sets. 'accounts' -> _missingAccountIds. */
+    private static readonly COLLECTION_KEYS = ['accounts', 'reviews', 'statuses', 'actions'] as const
+
     /**
      * Common initialization logic for factory methods.
      * Handles default values internally to avoid repetitive null coalescing in callers.
+     * Use explicit undefined checks for booleans so `disabled: false` / `needsRefresh: false` apply.
+     * When `attributes` and `collectionKeys` are provided, extracts sets from attributes into the corresponding fields.
      */
     private initializeBasicProperties(config: {
         type?: 'fusion' | 'identity' | 'managed' | 'decision'
+        nativeIdentity?: string
         name?: string | null
         sourceName?: string | null
-        disabled?: boolean | null
+        displayName?: string | null
+        disabled?: boolean
         needsRefresh?: boolean
         sources?: string[] | Set<string>
         attributes?: Attributes | null
+        /** Extract these attribute keys into collection sets; 'accounts' -> _missingAccountIds, others -> _* */
+        collectionKeys?: (typeof FusionAccount.COLLECTION_KEYS)[number][]
+        identityId?: string | null
+        managedAccountId?: string | null
+        modified?: Date
     }): void {
-        if (config.type !== undefined) {
-            this._type = config.type
-        }
-        if (config.name !== undefined) {
-            this._name = config.name ?? ''
-        }
-        if (config.sourceName !== undefined) {
-            this._sourceName = config.sourceName ?? ''
-        }
-        if (config.disabled !== undefined) {
-            this._disabled = config.disabled ?? false
-        }
-        if (config.needsRefresh !== undefined) {
-            this._needsRefresh = config.needsRefresh
-        }
-        if (config.sources !== undefined) {
+        if (config.type) this._type = config.type
+        if (config.name) this._name = config.name
+        if (config.nativeIdentity) this._nativeIdentity = config.nativeIdentity
+        if (config.sourceName) this._sourceName = config.sourceName
+        if (config.displayName) this._displayName = config.displayName
+        if (config.disabled !== undefined) this._disabled = config.disabled
+        if (config.needsRefresh !== undefined) this._needsRefresh = config.needsRefresh
+        if (config.identityId != null) this._identityId = config.identityId
+        if (config.managedAccountId != null) this._managedAccountId = config.managedAccountId
+        if (config.modified) this._modified = config.modified
+        if (config.sources) {
             this._sources = Array.isArray(config.sources) ? new Set(config.sources) : config.sources
         }
-        if (config.attributes !== undefined) {
-            this._attributeBag.current = { ...(config.attributes ?? {}) }
+        if (config.attributes) {
+            this._attributeBag.current = { ...config.attributes }
             if (config.type === 'fusion') {
-                this._attributeBag.previous = { ...(config.attributes ?? {}) }
+                this._attributeBag.previous = { ...config.attributes }
+            }
+        }
+        if (config.attributes && config.collectionKeys?.length) {
+            const attrs = config.attributes
+            for (const key of config.collectionKeys) {
+                const set = attributeToSet(attrs, key)
+                switch (key) {
+                    case 'accounts':
+                        this._missingAccountIds = set
+                        break
+                    case 'reviews':
+                        this._reviews = set
+                        break
+                    case 'statuses':
+                        this._statuses = set
+                        break
+                    case 'actions':
+                        this._actions = set
+                        break
+                }
             }
         }
     }
 
     public static fromFusionAccount(account: Account): FusionAccount {
         const fusionAccount = new FusionAccount()
-
-        // Parse sources from attributes
-        const sources = attrSplit(account.attributes?.sources ?? '')
-        const sourceSet = new Set(sources)
-
-        // Add 'Identities' source if this is a baseline account
+        const sourceSet = new Set<string>()
         const statuses = attributeToSet(account.attributes, 'statuses')
-        if (statuses.has('baseline')) {
-            sourceSet.add('Identities')
-        }
+        if (statuses.has('baseline')) sourceSet.add('Identities')
 
-        // Initialize common properties
         fusionAccount.initializeBasicProperties({
             type: 'fusion',
+            nativeIdentity: account.nativeIdentity as string,
             name: account.name,
             sourceName: account.sourceName,
+            displayName: account.name,
             disabled: account.disabled,
             sources: sourceSet,
-            attributes: account.attributes,
+            attributes: account.attributes ?? undefined,
+            collectionKeys: ['accounts', 'reviews', 'statuses', 'actions'],
+            identityId: account.identityId ?? undefined,
+            modified: getDateFromISOString(account.modified),
         })
-
-        // The ISC Account "id" (stable identifier for the account object)
-        fusionAccount._nativeIdentity = account.nativeIdentity as string
-        fusionAccount._displayName = fusionAccount._name
-        fusionAccount._modified = getDateFromISOString(account.modified)
-        fusionAccount._identityId = account.identityId ?? undefined
-
-        // Initialize collections
-        fusionAccount._missingAccountIds = attributeToSet(account.attributes, 'accounts')
-        fusionAccount._reviews = attributeToSet(account.attributes, 'reviews')
-        fusionAccount._statuses = attributeToSet(account.attributes, 'statuses')
-        fusionAccount._actions = attributeToSet(account.attributes, 'actions')
+        // Capture the previously stored account IDs so we can later rebuild
+        // the current and missing account sets based on which managed accounts
+        // still exist in configured sources.
+        fusionAccount._previousAccountIds = attributeToSet(account.attributes, 'accounts')
+        // Load history from platform so accountUpdate/accountRead don't send back empty history.
+        const historyAttr = account.attributes?.history
+        if (Array.isArray(historyAttr) && historyAttr.length > 0) {
+            fusionAccount.importHistory(historyAttr)
+        }
         return fusionAccount
     }
 
     public static fromIdentity(identity: IdentityDocument): FusionAccount {
         const fusionAccount = new FusionAccount()
-
         fusionAccount.initializeBasicProperties({
             type: 'identity',
+            nativeIdentity: identity.id,
             name: identity.attributes?.displayName ?? identity.name,
             sourceName: 'Identities',
             disabled: identity.disabled,
             needsRefresh: true,
             sources: ['Identities'],
-            attributes: identity.attributes,
+            attributes: identity.attributes ?? undefined,
+            identityId: identity.id ?? undefined,
         })
-
-        fusionAccount._identityId = identity.id ?? undefined
         fusionAccount.setBaseline()
-
         return fusionAccount
     }
 
     public static fromManagedAccount(account: Account): FusionAccount {
         const fusionAccount = new FusionAccount()
+        const sourceSet = new Set(attrSplit(account.attributes?.sources ?? ''))
 
         fusionAccount.initializeBasicProperties({
             type: 'managed',
+            nativeIdentity: account.id,
             name: account.name,
             sourceName: account.sourceName,
             disabled: account.disabled,
             needsRefresh: true,
+            sources: sourceSet,
+            attributes: account.attributes ?? undefined,
+            collectionKeys: ['accounts', 'statuses', 'actions', 'reviews'],
+            managedAccountId: account.id ?? undefined,
         })
-
-        fusionAccount._managedAccountId = account.id
-        fusionAccount._missingAccountIds = attributeToSet(account.attributes, 'accounts')
-        fusionAccount._statuses = attributeToSet(account.attributes, 'statuses')
-        fusionAccount._actions = attributeToSet(account.attributes, 'actions')
-        fusionAccount._reviews = attributeToSet(account.attributes, 'reviews')
-        fusionAccount.setUnmatched()
         fusionAccount.setUncorrelated()
         fusionAccount.setUncorrelatedAccount(account.id!)
-
         return fusionAccount
     }
 
     public static fromFusionDecision(decision: FusionDecision): FusionAccount {
         const fusionAccount = new FusionAccount()
-
+        const { account } = decision
         fusionAccount.initializeBasicProperties({
             type: 'decision',
-            name: decision.account.name,
-            sourceName: decision.account.sourceName,
+            nativeIdentity: account.id,
+            name: account.name,
+            sourceName: account.sourceName,
             needsRefresh: true,
+            managedAccountId: account.id ?? undefined,
         })
-
-        fusionAccount._managedAccountId = decision.account.id
         fusionAccount.setUncorrelated()
-
+        fusionAccount.setUncorrelatedAccount(account.id)
         return fusionAccount
     }
 
@@ -512,6 +529,29 @@ export class FusionAccount {
         }
     }
 
+    /**
+     * Clear all fusion review URLs so they can be repopulated from the current run.
+     * Used for reviewers so their reviews attribute reflects only current form instance URLs.
+     */
+    public clearFusionReviews(): void {
+        this._reviews.clear()
+        this._statuses.delete('activeReviews')
+    }
+
+    /**
+     * Sync collection state (reviews, accounts, statuses, actions, etc.) into the attribute bag
+     * so that getFusionAttributeSubset and downstream output include current values.
+     */
+    public syncCollectionAttributesToBag(): void {
+        this._attributeBag.current['reviews'] = Array.from(this._reviews)
+        this._attributeBag.current['accounts'] = Array.from(this._accountIds)
+        this._attributeBag.current['statuses'] = Array.from(this._statuses)
+        this._attributeBag.current['actions'] = Array.from(this._actions)
+        this._attributeBag.current['missing-accounts'] = Array.from(this._missingAccountIds)
+        this._attributeBag.current['sources'] = attrConcat(Array.from(this._sources))
+        this._attributeBag.current['history'] = this._history
+    }
+
     public addPendingReviewUrl(reviewUrl: string): void {
         if (reviewUrl) {
             this._pendingReviewUrls.add(reviewUrl)
@@ -661,6 +701,10 @@ export class FusionAccount {
         const keysToDelete = this.processAccountsForLayer(accountsById)
         this.deleteProcessedAccounts(accountsById, keysToDelete)
 
+        // Rebuild account/missing-account ID sets using the previously stored
+        // IDs and the managed accounts that were actually processed.
+        this.rebuildAccountSetsAfterManagedLayer(keysToDelete)
+
         // Update orphan status based on final account state
         // An account is orphaned if it has no managed accounts and is not a baseline identity
         if (this._accountIds.size === 0 && !this._statuses.has('baseline')) {
@@ -709,6 +753,38 @@ export class FusionAccount {
                 console.warn(`Failed to delete key ${id} from map - key may not exist or map reference is wrong`)
             }
         }
+    }
+
+    /**
+     * Rebuild account and missing-account ID sets based on the managed accounts
+     * that were actually processed for this fusion account.
+     *
+     * Uses _previousAccountIds as the baseline of what was stored on the fusion
+     * account in the previous run. Any previous ID that did not have a managed
+     * account match in this run is discarded from both _accountIds and
+     * _missingAccountIds.
+     *
+     * After rebuilding, _previousAccountIds is updated to the union of the
+     * current account and missing-account IDs so that it can be used as the
+     * baseline on the next run.
+     */
+    private rebuildAccountSetsAfterManagedLayer(processedAccountIds: string[]): void {
+        if (this._previousAccountIds.size > 0) {
+            const processedSet = new Set(processedAccountIds)
+
+            // Drop any previously stored IDs that did not have a managed
+            // account match in this run.
+            for (const id of this._previousAccountIds) {
+                if (!processedSet.has(id)) {
+                    this._missingAccountIds.delete(id)
+                    this._accountIds.delete(id)
+                }
+            }
+        }
+
+        // Update previous IDs to reflect the current state so that the next run
+        // can use them as its baseline.
+        this._previousAccountIds = new Set([...this._accountIds, ...this._missingAccountIds])
     }
 
     public addFusionDecisionLayer(decision: FusionDecision): void {
@@ -793,7 +869,7 @@ export class FusionAccount {
         this.addHistory(`Set ${this._name} [${this._sourceName}] as baseline`)
     }
 
-    private setUnmatched(): void {
+    public setUnmatched(): void {
         this._statuses.add('unmatched')
         this.addHistory(`Set ${this._name} [${this._sourceName}] as unmatched`)
     }
@@ -806,9 +882,9 @@ export class FusionAccount {
         const accountInfo = `${decision.account.name} [${decision.account.sourceName}]`
 
         if (action === 'manual') {
-            return `Created by ${submitterName} from ${accountInfo}`
+            return `Set ${accountInfo} as new account by ${submitterName}`
         } else {
-            return `${accountInfo} authorized by ${submitterName}`
+            return `Set ${accountInfo} as authorized by ${submitterName}`
         }
     }
 

@@ -270,23 +270,35 @@ export class FusionService {
         const { fusionIdentityDecisions: identityFusionDecisions } = this.forms
         this.log.info(`Processing ${identityFusionDecisions.length} identity fusion decision(s)`)
 
-        // First, populate reviewer reviews from pending (unfinished) decisions that have form URLs.
-        // This replaces FormService.populateReviewerMap and avoids extra form/instance API calls.
-        let pendingReviews = 0
-        for (const decision of identityFusionDecisions) {
-            assert(decision.formUrl, 'Form URL is required for pending reviews')
-            if (!decision.finished) {
-                const reviewer = this.fusionIdentityMap.get(decision.submitter.id)
-                if (reviewer) {
-                    reviewer.addFusionReview(decision.formUrl)
-                    pendingReviews++
-                }
+        // Clear reviewer reviews so we repopulate only from current run (pending decisions + form instances).
+        // This ensures reviewers' reviews attribute is updated with current fusion review instance URLs every run.
+        const reviewerSet = new Set<FusionAccount>()
+        for (const reviewers of this._reviewersBySourceId.values()) {
+            for (const reviewer of reviewers) {
+                reviewerSet.add(reviewer)
             }
-
         }
-        this.log.debug(`Populated reviewer reviews from fusion decisions - added ${pendingReviews} pending review(s)`)
+        for (const reviewer of reviewerSet) {
+            reviewer.clearFusionReviews()
+        }
 
-        // Then, apply only finished decisions to fusion identities.
+        // Populate reviewer reviews from pending (unanswered) form instances kept during fetchFormData.
+        // Each reviewer gets their current pending instance URLs by identityId.
+        const pendingByReviewer = this.forms.pendingReviewUrlsByReviewerId
+        let pendingReviews = 0
+        for (const reviewer of reviewerSet) {
+            const identityId = reviewer.identityId
+            if (!identityId) continue
+            const urls = pendingByReviewer.get(identityId)
+            if (!urls?.length) continue
+            for (const url of urls) {
+                reviewer.addFusionReview(url)
+                pendingReviews++
+            }
+        }
+        this.log.debug(`Populated reviewer reviews from pending form instances - added ${pendingReviews} pending review(s)`)
+
+        // Apply only finished decisions to fusion identities.
         await Promise.all(identityFusionDecisions.map((x) => this.processIdentityFusionDecision(x)))
         this.log.info('Identity fusion decisions processing completed')
     }
@@ -351,6 +363,28 @@ export class FusionService {
     }
 
     /**
+     * Builds a synthetic fusion decision for auto-correlation when all attribute scores are 100.
+     */
+    private createAutoCorrelationDecision(
+        fusionAccount: FusionAccount,
+        account: Account,
+        identityId: string
+    ): FusionDecision {
+        return {
+            submitter: { id: 'system', email: '', name: 'System (auto-correlated)' },
+            account: {
+                id: fusionAccount.managedAccountId!,
+                name: fusionAccount.name ?? account.name ?? '',
+                sourceName: fusionAccount.sourceName,
+            },
+            newIdentity: false,
+            identityId,
+            comments: 'Auto-correlated: all attribute scores were 100',
+            finished: true,
+        }
+    }
+
+    /**
      * Process a single managed account
      */
     public async processManagedAccount(account: Account): Promise<void> {
@@ -360,32 +394,17 @@ export class FusionService {
             const perfectMatch = fusionAccount.fusionMatches.find((m) =>
                 FusionService.hasAllAttributeScoresPerfect(m)
             )
-            if (
-                this.config.fusionMergingIdentical &&
-                perfectMatch &&
-                perfectMatch.fusionIdentity.identityId
-            ) {
+            const identityId = perfectMatch?.fusionIdentity.identityId
+            if (this.config.fusionMergingIdentical && identityId) {
                 this.log.debug(
-                    `Account ${account.name} [${fusionAccount.sourceName}] has all scores 100, auto-correlating to identity ${perfectMatch.fusionIdentity.identityId}`
+                    `Account ${account.name} [${fusionAccount.sourceName}] has all scores 100, auto-correlating to identity ${identityId}`
                 )
-                const syntheticDecision: FusionDecision = {
-                    submitter: { id: 'system', email: '', name: 'System (auto-correlated)' },
-                    account: {
-                        id: fusionAccount.managedAccountId!,
-                        name: fusionAccount.name ?? account.name ?? '',
-                        sourceName: fusionAccount.sourceName,
-                    },
-                    newIdentity: false,
-                    identityId: perfectMatch.fusionIdentity.identityId,
-                    comments: 'Auto-correlated: all attribute scores were 100',
-                    finished: true,
-                }
+                const syntheticDecision = this.createAutoCorrelationDecision(
+                    fusionAccount,
+                    account,
+                    identityId
+                )
                 await this.processIdentityFusionDecision(syntheticDecision)
-                // Do not include auto-correlated accounts in potential-duplicate reporting
-                const idx = this.potentialDuplicateAccounts.indexOf(fusionAccount)
-                if (idx !== -1) {
-                    this.potentialDuplicateAccounts.splice(idx, 1)
-                }
             } else {
                 const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
                 assert(sourceInfo, 'Source info not found')
@@ -397,6 +416,7 @@ export class FusionService {
             await this.attributes.refreshUniqueAttributes(fusionAccount)
             const key = this.attributes.getSimpleKey(fusionAccount)
             fusionAccount.setKey(key)
+            fusionAccount.setUnmatched()
 
             // Use setter method to add to appropriate map
             this.setFusionAccount(fusionAccount)
@@ -495,6 +515,9 @@ export class FusionService {
         await fusionAccount.resolvePendingOperations()
         // Update correlation status/action after all correlation promises have resolved
         fusionAccount.updateCorrelationStatus()
+        // Sync collection state (reviews, accounts, statuses, actions) into the attribute bag
+        // so that the subset and output include current values (e.g. reviewer review URLs).
+        fusionAccount.syncCollectionAttributesToBag()
         const attributes = this.schemas.getFusionAttributeSubset(fusionAccount.attributes)
         const disabled = fusionAccount.disabled
         const key = fusionAccount.key

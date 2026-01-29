@@ -16,7 +16,6 @@ export const accountUpdate = async (
 
     try {
         log.info(`Updating account ${input.identity}...`)
-        log.info(`Input: ${JSON.stringify(input)}`)
         assert(input.identity, 'Account identity is required')
         assert(input.changes, 'Account changes are required')
         assert(input.changes.length > 0, 'At least one change is required')

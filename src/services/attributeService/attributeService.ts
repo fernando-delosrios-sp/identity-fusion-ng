@@ -210,10 +210,20 @@ export class AttributeService {
                     attributes[attribute] = processedValue
                     if (attribute === 'history') {
                         const history = processedValue as string[]
-                        fusionAccount.importHistory(history)
+                        // Only overwrite fusion account _history when we have actual content from sources.
+                        // Empty array would wipe fusion audit log (e.g. "Set X as unmatched").
+                        if (Array.isArray(history) && history.length > 0) {
+                            fusionAccount.importHistory(history)
+                        }
                     }
                 }
             }
+        }
+
+        // Ensure fusion account history is never lost: for accounts that have their own audit log
+        // (e.g. type 'managed' with setUnmatched), keep it in the bag so output is correct.
+        if (fusionAccount.history.length > 0) {
+            attributes['history'] = [...fusionAccount.history]
         }
 
         // Set the mapped attributes
@@ -334,7 +344,7 @@ export class AttributeService {
      */
     public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType {
         const { fusionIdentityAttribute } = this.schemas
-        const uniqueId = fusionAccount.nativeIdentity ?? (fusionAccount.attributes[fusionIdentityAttribute] as string)
+        const uniqueId = (fusionAccount.attributes[fusionIdentityAttribute] as string) ?? fusionAccount.nativeIdentity
         assert(uniqueId, `Unique ID is required for simple key`)
 
         return SimpleKey(uniqueId)
@@ -717,7 +727,7 @@ export class AttributeService {
             try {
                 await this.generateAttribute(definition, fusionAccount)
             } catch (error) {
-                this.log.error(`Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`, error)
+                this.log.error(`Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`, (error as any).message)
                 if (isUniqueAttribute(definition)) {
                     throw error
                 }

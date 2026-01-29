@@ -50,13 +50,19 @@ export class SchemaService {
         return this.fusionAccountSchema.displayAttribute
     }
 
+    /** Base fusion attribute names that must always be included in the subset (e.g. reviews for reviewers). */
+    private static readonly BASE_FUSION_ATTRIBUTE_NAMES = fusionAccountSchemaAttributes.map((a) => a.name!).filter(Boolean)
+
     public async setFusionAccountSchema(accountSchema: AccountSchema | undefined): Promise<void> {
         if (accountSchema) {
             this._fusionAccountSchema = accountSchema
         } else {
             await this.fetchFusionAccountSchema()
         }
-        this._fusionSchemaAttributeNames = this.fusionAccountSchema.attributes.map((x) => x.name!).sort()
+        const fromSchema = this.fusionAccountSchema.attributes.map((x) => x.name!).filter(Boolean)
+        this._fusionSchemaAttributeNames = [
+            ...new Set([...fromSchema, ...SchemaService.BASE_FUSION_ATTRIBUTE_NAMES]),
+        ].sort()
     }
 
     /**
