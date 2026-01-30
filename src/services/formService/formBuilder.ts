@@ -305,10 +305,12 @@ export const buildFormFields = (
 }
 
 /**
- * Build form conditions to hide candidate sections when appropriate
- * and disable all TEXT fields at all times
+ * Build form conditions to show/hide and disable candidate sections appropriately.
+ * Per candidate:
+ * 1. When newIdentity is true → DISABLE that candidate's selection section.
+ * 2. When newIdentity is true OR identities is not this candidate → HIDE that candidate's selection section.
  */
-export const buildFormConditions = (candidates: Candidate[], fusionFormAttributes?: string[]): any[] => {
+export const buildFormConditions = (candidates: Candidate[], _fusionFormAttributes?: string[]): any[] => {
     const formConditions: any[] = []
 
     // Validate inputs to prevent malformed conditions
@@ -316,106 +318,33 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
         return formConditions
     }
 
-    // Disable all TEXT fields in the top section (new identity attributes)
-    // Use a condition that's always true by checking newIdentity against itself
-    if (fusionFormAttributes && fusionFormAttributes.length > 0) {
-        fusionFormAttributes.forEach((attrName) => {
-            const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
-            formConditions.push({
-                ruleOperator: 'AND',
-                rules: [
-                    {
-                        sourceType: 'ELEMENT',
-                        source: 'newIdentity',
-                        operator: 'NE',
-                        valueType: 'STRING',
-                        value: '__NEVER_MATCH__',
-                    },
-                ],
-                effects: [
-                    {
-                        effectType: 'DISABLE',
-                        config: {
-                            element: `newidentity.${attrKey}`,
-                        },
-                    },
-                ],
-            })
-        })
-    }
-
-    // Disable all TEXT fields for candidate attributes and scores
-    candidates.forEach((candidate) => {
-        if (!candidate || !candidate.id) return
-        const candidateId = candidate.id
-
-        // Disable candidate attribute fields
-        // Use a condition that's always true by checking newIdentity against an impossible value
-        if (fusionFormAttributes && fusionFormAttributes.length > 0) {
-            fusionFormAttributes.forEach((attrName) => {
-                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
-                formConditions.push({
-                    ruleOperator: 'AND',
-                    rules: [
-                        {
-                            sourceType: 'ELEMENT',
-                            source: 'newIdentity',
-                            operator: 'NE',
-                            valueType: 'STRING',
-                            value: '__NEVER_MATCH__',
-                        },
-                    ],
-                    effects: [
-                        {
-                            effectType: 'DISABLE',
-                            config: {
-                                element: `${candidateId}.${attrKey}`,
-                            },
-                        },
-                    ],
-                })
-            })
-        }
-
-        // Disable score display fields
-        // Use a condition that's always true by checking newIdentity against an impossible value
-        if (candidate.scores && Array.isArray(candidate.scores) && candidate.scores.length > 0) {
-            candidate.scores.forEach((score: any) => {
-                if (!score || typeof score !== 'object') return
-                // ScoreReport structure: { attribute, algorithm, fusionScore, score, isMatch }
-                if (score.attribute && score.score !== undefined) {
-                    const attrKey = String(score.attribute).charAt(0).toLowerCase() + String(score.attribute).slice(1)
-                    const algorithmKey = String(score.algorithm ?? 'unknown')
-                    formConditions.push({
-                        ruleOperator: 'AND',
-                        rules: [
-                            {
-                                sourceType: 'ELEMENT',
-                                source: 'newIdentity',
-                                operator: 'NE',
-                                valueType: 'STRING',
-                                value: '__NEVER_MATCH__',
-                            },
-                        ],
-                        effects: [
-                            {
-                                effectType: 'DISABLE',
-                                config: {
-                                    element: `${candidateId}.${attrKey}.${algorithmKey}.score`,
-                                },
-                            },
-                        ],
-                    })
-                }
-            })
-        }
-    })
-
-    // For each candidate, create a condition that hides its section when:
-    // - newIdentity is true, OR
-    // - identities is not equal to the candidate's displayName (form conditions use the label, not the value)
     candidates.forEach((candidate) => {
         if (!candidate || !candidate.id || !candidate.name) return
+        const selectionSectionId = `${candidate.id}.selectionsection`
+
+        // When "New identity" is selected, disable this candidate's details section
+        formConditions.push({
+            ruleOperator: 'AND',
+            rules: [
+                {
+                    sourceType: 'ELEMENT',
+                    source: 'newIdentity',
+                    operator: 'EQ',
+                    valueType: 'BOOLEAN',
+                    value: 'true',
+                },
+            ],
+            effects: [
+                {
+                    effectType: 'DISABLE',
+                    config: {
+                        element: selectionSectionId,
+                    },
+                },
+            ],
+        })
+
+        // Hide this candidate's section when new identity is selected OR a different identity is chosen
         formConditions.push({
             ruleOperator: 'OR',
             rules: [
@@ -438,7 +367,7 @@ export const buildFormConditions = (candidates: Candidate[], fusionFormAttribute
                 {
                     effectType: 'HIDE',
                     config: {
-                        element: `${candidate.id}.selectionsection`,
+                        element: selectionSectionId,
                     },
                 },
             ],
