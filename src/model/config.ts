@@ -46,7 +46,7 @@ export interface AttributeDefinition {
 
 export interface MatchingConfig {
     attribute: string
-    algorithm?: 'name-matcher' | 'jaro-winkler' | 'dice' | 'double-metaphone' | 'average' | 'custom'
+    algorithm?: 'name-matcher' | 'jaro-winkler' | 'lig3' | 'dice' | 'double-metaphone' | 'average' | 'custom'
     fusionScore?: number
     mandatory?: boolean
 }

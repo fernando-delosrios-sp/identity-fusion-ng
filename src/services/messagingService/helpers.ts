@@ -13,6 +13,7 @@ export const registerHandlebarsHelpers = (): void => {
     const algorithmLabels: Record<string, string> = {
         'name-matcher': 'Name Matcher',
         'jaro-winkler': 'Jaro-Winkler',
+        lig3: 'LIG3',
         dice: 'Dice',
         'double-metaphone': 'Double Metaphone',
         custom: 'Custom',

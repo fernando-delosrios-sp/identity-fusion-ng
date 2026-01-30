@@ -17,7 +17,7 @@ import { LogService } from '../logService'
 import { IdentityService } from '../identityService'
 import { MessagingService } from '../messagingService'
 import { SourceService } from '../sourceService'
-import { assert } from '../../utils/assert'
+import { assert, softAssert } from '../../utils/assert'
 import { FusionDecision } from '../../model/form'
 import { FusionAccount } from '../../model/account'
 import { Candidate } from './types'
@@ -142,21 +142,23 @@ export class FormService {
         const { candidates, formDefinition, formInput, expire, fusionSourceId } =
             await this.prepareFormCreationData(fusionAccount, reviewers!.size)
 
-        const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
-        const existingRecipientIds = this.extractExistingRecipientIds(existingInstances)
+        if (formDefinition) {
+            const existingInstances = await this.fetchFormInstancesByDefinitionId(formDefinition.id)
+            const existingRecipientIds = this.extractExistingRecipientIds(existingInstances)
 
-        this.associateExistingInstancesWithReviewers(existingInstances, reviewers!)
+            this.associateExistingInstancesWithReviewers(existingInstances, reviewers!)
 
-        await this.createFormInstancesForReviewers(
-            reviewers!,
-            formDefinition,
-            formInput,
-            fusionSourceId,
-            expire,
-            fusionAccount,
-            candidates,
-            existingRecipientIds
-        )
+            await this.createFormInstancesForReviewers(
+                reviewers!,
+                formDefinition,
+                formInput,
+                fusionSourceId,
+                expire,
+                fusionAccount,
+                candidates,
+                existingRecipientIds
+            )
+        }
     }
 
     /**
@@ -179,7 +181,7 @@ export class FormService {
     ): Promise<{
         candidates: Candidate[]
         formName: string
-        formDefinition: FormDefinitionResponseV2025
+        formDefinition: FormDefinitionResponseV2025 | undefined
         formInput: { [key: string]: any }
         expire: string
         fusionSourceId: string
@@ -213,13 +215,13 @@ export class FormService {
         formName: string,
         fusionAccount: FusionAccount,
         candidates: Candidate[]
-    ): Promise<FormDefinitionResponseV2025> {
+    ): Promise<FormDefinitionResponseV2025 | undefined> {
         let formDefinition = await this.findFormDefinitionByName(formName)
         if (!formDefinition) {
             this.log.debug(`Form definition not found, creating new one: ${formName}`)
             formDefinition = await this.buildFusionFormDefinition(formName, fusionAccount, candidates)
-            assert(formDefinition, 'Failed to create form definition')
-            assert(formDefinition.id, 'Form definition ID is required')
+            softAssert(formDefinition, 'Failed to create form definition')
+            softAssert(formDefinition?.id, 'Form definition ID is required')
         } else {
             this.log.debug(`Using existing form definition: ${formDefinition.id}`)
         }
@@ -770,8 +772,11 @@ export class FormService {
         formName: string,
         fusionAccount: FusionAccount,
         candidates: Candidate[]
-    ): Promise<FormDefinitionResponseV2025> {
-        assert(candidates.length <= MAX_CANDIDATES_FOR_FORM, `Candidates must be less than or equal to ${MAX_CANDIDATES_FOR_FORM}`)
+    ): Promise<FormDefinitionResponseV2025 | undefined> {
+        if (candidates.length > MAX_CANDIDATES_FOR_FORM) {
+            this.log.error(`Candidates must be less than or equal to ${MAX_CANDIDATES_FOR_FORM}`)
+            return
+        }
         const formFields = buildFormFields(fusionAccount, candidates, this.fusionFormAttributes)
         const formInputs = buildFormInputs(fusionAccount, candidates, this.fusionFormAttributes)
         const formConditions = buildFormConditions(candidates, this.fusionFormAttributes)
