@@ -20,6 +20,6 @@ This folder contains the **usage guides** linked from the [main README](../READM
 Placeholder paths used in the guides:
 
 - **Screenshots:** `docs/assets/images/` — add the image files referenced in the HTML comments in each guide (e.g. `attribute-generation-source-settings.png`).
-- **Videos:** `docs/assets/videos/` — add the video files referenced in the HTML comments (e.g. `attribute-generation-unique-id.mp4`, `deduplication-flow.mp4`).
+- **Videos:** `docs/assets/videos/` — add the video files referenced in the guides (e.g. `identity-fusion-migration.mov`, `attribute-generation-unique-id.mp4`, `deduplication-flow.mp4`).
 
 After adding a file, the markdown image/video link in the guide will work as long as the filename matches. Image paths in the guides are relative to this `docs/` folder (e.g. `../assets/images/...` from `docs/guides/`).

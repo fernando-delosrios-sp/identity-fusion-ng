@@ -396,6 +396,7 @@ export class FusionService {
             )
             const identityId = perfectMatch?.fusionIdentity.identityId
             if (this.config.fusionMergingIdentical && identityId) {
+                // Perfect match
                 this.log.debug(
                     `Account ${account.name} [${fusionAccount.sourceName}] has all scores 100, auto-correlating to identity ${identityId}`
                 )
@@ -406,12 +407,14 @@ export class FusionService {
                 )
                 await this.processIdentityFusionDecision(syntheticDecision)
             } else {
+                // Match
                 const sourceInfo = this.sourcesByName.get(fusionAccount.sourceName)
                 assert(sourceInfo, 'Source info not found')
                 const reviewers = this.reviewersBySourceId.get(sourceInfo.id!)
                 await this.forms.createFusionForm(fusionAccount, reviewers)
             }
         } else {
+            // Non-match
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
             await this.attributes.refreshUniqueAttributes(fusionAccount)
             const key = this.attributes.getSimpleKey(fusionAccount)
@@ -498,9 +501,8 @@ export class FusionService {
     private async preProcessManagedAccount(account: Account): Promise<FusionAccount> {
         const fusionAccount = FusionAccount.fromManagedAccount(account)
 
-        const managedAccountsMap = this.sources.managedAccountsById
-        assert(managedAccountsMap, 'Managed accounts have not been loaded')
-        fusionAccount.addManagedAccountLayer(managedAccountsMap)
+        assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
+        fusionAccount.addManagedAccountLayer(new Map([[account.id!, account]]))
 
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshNonUniqueAttributes(fusionAccount)

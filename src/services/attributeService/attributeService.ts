@@ -77,7 +77,7 @@ export class AttributeService {
             id: fusionSourceId,
             jsonPatchOperationV2025: [
                 {
-                    op: 'add',
+                    op: 'replace',
                     path: FUSION_STATE_CONFIG_PATH,
                     value: stateObject,
                 },

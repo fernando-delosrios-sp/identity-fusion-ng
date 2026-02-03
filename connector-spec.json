@@ -46,7 +46,8 @@
         "refresh": false,
         "force": false,
         "type": "normal",
-        "algorithm": "name-matcher"
+        "algorithm": "name-matcher",
+        "enableBatching": true
     },
     "sourceConfig": [
         {
@@ -543,7 +544,7 @@
                                             "label": "Matching algorithm",
                                             "type": "select",
                                             "required": true,
-                                            "helpKey": "Algorithm used to calculate similarity scores between attribute values when detecting potential duplicate identities. Enhanced Name Matcher: optimized for person names, accounts for common variations and cultural differences. Jaro-Winkler: measures similarity giving more weight to matches at the beginning of strings, ideal for short fields with common typos. Dice: calculates similarity based on shared bigrams (two-character sequences), suitable for longer text fields. Double Metaphone: phonetic algorithm generating codes for similar-sounding strings, ideal for fields with varying spellings but similar pronunciation.",
+                                            "helpKey": "Algorithm used to calculate similarity scores between attribute values when detecting potential duplicate identities. Enhanced Name Matcher: optimized for person names, accounts for common variations and cultural differences. Jaro-Winkler: measures similarity giving more weight to matches at the beginning of strings, ideal for short fields with common typos. LIG3: advanced algorithm combining Levenshtein distance with intelligent gap penalties, token-based matching, and positional weighting, excellent for international names with accents and multi-word fields with missing components or formatting differences. Dice: calculates similarity based on shared bigrams (two-character sequences), suitable for longer text fields. Double Metaphone: phonetic algorithm generating codes for similar-sounding strings, ideal for fields with varying spellings but similar pronunciation.",
                                             "options": [
                                                 {
                                                     "label": "Enhanced Name Matcher",
@@ -556,6 +557,12 @@
                                                     "value": "jaro-winkler",
                                                     "docLink": "https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance",
                                                     "docLinkLabel": "Learn more about Jaro-Winkler similarity"
+                                                },
+                                                {
+                                                    "label": "LIG3",
+                                                    "value": "lig3",
+                                                    "docLink": "https://en.wikipedia.org/wiki/Levenshtein_distance",
+                                                    "docLinkLabel": "Learn more about LIG3 (based on Levenshtein distance)"
                                                 },
                                                 {
                                                     "label": "Dice",
@@ -579,7 +586,7 @@
                                             "key": "fusionScore",
                                             "label": "Similarity score [0-100]",
                                             "type": "number",
-                                            "required": false,
+                                            "required": true,
                                             "helpKey": "Minimum similarity score threshold (0-100) for this attribute when detecting potential duplicate identities"
                                         },
                                         {
