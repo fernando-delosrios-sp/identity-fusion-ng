@@ -9,6 +9,7 @@ import {
     CustomFormsV2025ApiCreateFormDefinitionRequest,
     CustomFormsV2025ApiCreateFormInstanceRequest,
     CustomFormsV2025ApiPatchFormInstanceRequest,
+    CustomFormsV2025ApiSearchFormInstancesByTenantRequest,
 } from 'sailpoint-api-client'
 import { RawAxiosRequestConfig } from 'axios'
 import { FusionConfig } from '../../model/config'
@@ -424,14 +425,12 @@ export class FormService {
      */
     public async fetchFormInstancesByDefinitionId(formDefinitionId?: string): Promise<FormInstanceResponseV2025[]> {
         const { customFormsApi } = this.client
-        const axiosOptions: RawAxiosRequestConfig = {
-            params: {
-                filters: `formDefinitionId eq "${formDefinitionId}"`,
-            },
+        const requestParameters: CustomFormsV2025ApiSearchFormInstancesByTenantRequest = {
+            filters: `formDefinitionId eq "${formDefinitionId}"`,
         }
 
         const searchFormInstancesByTenant = async () => {
-            const response = await customFormsApi.searchFormInstancesByTenant(axiosOptions)
+            const response = await customFormsApi.searchFormInstancesByTenant(requestParameters)
             return response.data ?? []
         }
 

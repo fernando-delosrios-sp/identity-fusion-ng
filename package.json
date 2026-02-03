@@ -1,6 +1,6 @@
 {
     "name": "identity-fusion-ng",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "main": "dist/index.js",
     "scripts": {
         "clean": "shx rm -rf ./dist",
@@ -18,7 +18,8 @@
     },
     "private": true,
     "dependencies": {
-        "@sailpoint/connector-sdk": "1.1.36",
+        "@sailpoint/connector-sdk": "1.1.38",
+        "sailpoint-api-client": "1.7.1",
         "any-date-parser": "^2.2.3",
         "axios": "^1.6.8",
         "double-metaphone": "^2.0.1",
@@ -27,7 +28,6 @@
         "identity-fusion": "file:",
         "libphonenumber-js": "^1.12.34",
         "parse-address-string": "^0.0.3",
-        "sailpoint-api-client": "1.7.0",
         "transliteration": "^2.3.5",
         "uuid": "^9.0.1",
         "velocityjs": "^2.0.6"

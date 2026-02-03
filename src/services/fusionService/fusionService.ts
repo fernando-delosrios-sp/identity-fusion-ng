@@ -501,9 +501,7 @@ export class FusionService {
     private async preProcessManagedAccount(account: Account): Promise<FusionAccount> {
         const fusionAccount = FusionAccount.fromManagedAccount(account)
 
-        const managedAccountsMap = this.sources.managedAccountsById
-        assert(managedAccountsMap, 'Managed accounts have not been loaded')
-        managedAccountsMap.delete(account.id!)
+        assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
         fusionAccount.addManagedAccountLayer(new Map([[account.id!, account]]))
 
         this.attributes.mapAttributes(fusionAccount)
