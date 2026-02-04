@@ -2,21 +2,21 @@
 
 This guide describes how to migrate from an earlier Identity Fusion connector to **Identity Fusion NG** with minimal disruption. The approach uses the existing (old) Fusion source as a **managed source** in the new setup, validates new accounts, then migrates identities to a new profile before decommissioning the old one.
 
-> **Video walkthrough:** A step-by-step migration demo is available at [`../assets/videos/identity-fusion-migration.mov`](../assets/videos/identity-fusion-migration.mov).
+> **Video walkthrough:** A step-by-step migration demo is available on YouTube: [https://youtu.be/Gy4eiSgtq_0](https://youtu.be/Gy4eiSgtq_0).
 
 ---
 
 ## Overview
 
-| Phase                                                       | Goal                                                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Add Identity Fusion NG with old source only**          | New Fusion source uses the old Fusion as the **only** managed source; no identity scope, no attribute definitions, no reviewers, no automatic reports, no Fusion settings.                                                                                                                     |
-| **2. Discover schema and aggregate once**                   | Ensure mappings are in place; run **Discover Schema** and select the correct ID and name attributes; run aggregation once to validate new Fusion accounts.                                                                                                                                     |
-| **3. Replace old source with originals; add attribute definitions** | Remove the old Fusion from the source list and add the original managed sources. Configure Attribute Definitions as needed (account ID/name, etc.); aggregate again.                                                                                                                             |
-| **4. New identity profile with higher priority**            | Create a new identity profile for Identity Fusion NG with **higher priority** than the original Fusion identity profile.                                                                                                                                                                       |
-| **5. Identity refresh**                                     | Run an identity refresh so existing Fusion identities migrate to the new profile. Account migration complete.                                                                                                                                                                                  |
-| **6. Finish Fusion settings**                               | Configure Fusion settings (matching, review) and any other tweaks.                                                                                                                                                                                                                             |
-| **7. Decommission**                                         | Once migration is verified, decommission the old identity profile and the old Fusion source.                                                                                                                                                                                                   |
+| Phase                                                               | Goal                                                                                                                                                                       |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Add Identity Fusion NG with old source only**                  | New Fusion source uses the old Fusion as the **only** managed source; no identity scope, no attribute definitions, no reviewers, no automatic reports, no Fusion settings. |
+| **2. Discover schema and aggregate once**                           | Ensure mappings are in place; run **Discover Schema** and select the correct ID and name attributes; run aggregation once to validate new Fusion accounts.                 |
+| **3. Replace old source with originals; add attribute definitions** | Remove the old Fusion from the source list and add the original managed sources. Configure Attribute Definitions as needed (account ID/name, etc.); aggregate again.       |
+| **4. New identity profile with higher priority**                    | Create a new identity profile for Identity Fusion NG with **higher priority** than the original Fusion identity profile.                                                   |
+| **5. Identity refresh**                                             | Run an identity refresh so existing Fusion identities migrate to the new profile. Account migration complete.                                                              |
+| **6. Finish Fusion settings**                                       | Configure Fusion settings (matching, review) and any other tweaks.                                                                                                         |
+| **7. Decommission**                                                 | Once migration is verified, decommission the old identity profile and the old Fusion source.                                                                               |
 
 ---
 
@@ -127,15 +127,15 @@ With account migration complete, configure the remaining settings:
 
 ## Summary
 
-| Step | Action                                                                                                                     |
-| ---- | -------------------------------------------------------------------------------------------------------------------------- |
+| Step | Action                                                                                                                                                                           |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | Add Identity Fusion NG source; add old Fusion as the **only** managed source; mappings in place; **no** attribute definitions, reviewers, automatic reports, or Fusion settings. |
-| 2    | Run **Discover Schema**; select correct ID and name attributes; run aggregation once; validate new Fusion accounts.        |
-| 3    | **Replace** old Fusion with original sources; configure **Attribute Definitions**; run aggregation again; verify accounts.  |
-| 4    | Create a new identity profile for Identity Fusion NG with **higher priority** than the old Fusion profile.                 |
-| 5    | Run **identity refresh** to migrate existing Fusion identities. Account migration complete.                                |
-| 6    | Finish configuring **Fusion settings** (matching, review) and any other tweaks.                                            |
-| 7    | After verification, decommission the old identity profile and old Fusion source.                                           |
+| 2    | Run **Discover Schema**; select correct ID and name attributes; run aggregation once; validate new Fusion accounts.                                                              |
+| 3    | **Replace** old Fusion with original sources; configure **Attribute Definitions**; run aggregation again; verify accounts.                                                       |
+| 4    | Create a new identity profile for Identity Fusion NG with **higher priority** than the old Fusion profile.                                                                       |
+| 5    | Run **identity refresh** to migrate existing Fusion identities. Account migration complete.                                                                                      |
+| 6    | Finish configuring **Fusion settings** (matching, review) and any other tweaks.                                                                                                  |
+| 7    | After verification, decommission the old identity profile and old Fusion source.                                                                                                 |
 
 **Next steps:**
 
